@@ -70,7 +70,14 @@ To run the tests you need node.js, npm, and tsx
    ```sh
    npm install
    ```
-4. Rename the .env_template to .env and fill out the information
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<!-- USAGE EXAMPLES -->
+
+## Usage
+
+1. Rename the .env_template to .env and fill out the information
    ```sh
    GRPC_URL="https://example_endpoint:example_port"
    HTTP_URL="http://example_endpoint"
@@ -79,13 +86,7 @@ To run the tests you need node.js, npm, and tsx
    TEST_INTERVAL=5
    ```
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-<!-- USAGE EXAMPLES -->
-
-## Usage
-
-Enter your terminal and run the below...
+2. Enter your terminal and run the below...
 
 ```sh
    npx tsx test.ts
