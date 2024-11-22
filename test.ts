@@ -17,6 +17,22 @@ const WS_URL = process.env.WS_URL as string;
 const TEST_DURATION = Number(process.env.TEST_DURATION as string);
 const TEST_INTERVAL = Number(process.env.TEST_INTERVAL as string);
 
+const checkEnvVariables = () => {
+  const missingVars = [];
+  if (!GRPC_URL) missingVars.push("GRPC_URL");
+  if (!HTTP_URL) missingVars.push("HTTP_URL");
+  if (!WS_URL) missingVars.push("WS_URL");
+  if (!TEST_DURATION) missingVars.push("TEST_DURATION");
+  if (!TEST_INTERVAL) missingVars.push("TEST_INTERVAL");
+
+  if (missingVars.length > 0) {
+    console.log(chalk.red(`Missing environment variable(s): ${missingVars.join(", ")}`));
+    process.exit(1);
+  }
+};
+
+checkEnvVariables();
+
 const COMMITMENT_LEVEL = "confirmed";
 const X_TOKEN = undefined;
 const PING_INTERVAL_MS = 30_000; // 30s
