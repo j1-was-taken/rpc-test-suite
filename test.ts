@@ -24,7 +24,9 @@ const checkEnvVariables = () => {
   if (!TEST_INTERVAL) missingVars.push("TEST_INTERVAL");
 
   if (missingVars.length > 0) {
-    console.log(chalk.red(`Missing environment variable(s): ${missingVars.join(", ")}`));
+    console.log(
+      chalk.red(`Missing environment variable(s): ${missingVars.join(", ")}`)
+    );
     process.exit(1);
   }
 };
@@ -35,10 +37,6 @@ const COMMITMENT_LEVEL = "confirmed";
 const X_TOKEN = GRPC_API_KEY;
 const PING_INTERVAL_MS = 30_000; // 30s
 const COPY_ACCOUNTS = ["SysvarC1ock11111111111111111111111111111111"];
-
-const CONNECTION_HTTP = new Connection(HTTP_URL, {
-  commitment: COMMITMENT_LEVEL,
-});
 
 export interface IResults {
   time: string;
@@ -74,172 +72,182 @@ async function testGrpcStream(): Promise<IResults> {
   let elapsedTime = "0";
   let dataDetectedCount = 0;
 
-  const client = new Client(GRPC_URL, X_TOKEN, {});
+  try {
+    const client = new Client(GRPC_URL, X_TOKEN, {});
+    const stream = await client.subscribe();
+    const startTime = Date.now();
 
-  const stream = await client.subscribe();
+    // Ping request object
+    const pingRequest: SubscribeRequest = {
+      ping: { id: 1 },
+      accounts: {},
+      accountsDataSlice: [],
+      transactions: {},
+      transactionsStatus: {},
+      blocks: {},
+      blocksMeta: {},
+      entry: {},
+      slots: {},
+    };
 
-  const startTime = Date.now();
+    // Setup ping interval
+    const pingInterval = setInterval(async () => {
+      await new Promise<void>((resolve, reject) => {
+        stream.write(pingRequest, (err: any) => {
+          if (err === null || err === undefined) {
+            resolve();
+          } else {
+            reject(err);
+          }
+        });
+      });
+    }, PING_INTERVAL_MS);
 
-  const pingRequest: SubscribeRequest = {
-    ping: { id: 1 },
-    accounts: {},
-    accountsDataSlice: [],
-    transactions: {},
-    transactionsStatus: {},
-    blocks: {},
-    blocksMeta: {},
-    entry: {},
-    slots: {},
-  };
+    // Handle stream data
+    stream.on("data", (data) => {
+      const ts = Date.now();
+      const elapsed = Math.floor((ts - startTime) / 1000);
+      elapsedTime = formatElapsedTime(elapsed);
 
-  const pingInterval = setInterval(async () => {
+      if (data.filters[0] === "txReq") {
+        const accKeysBytes =
+          data.transaction.transaction.transaction.message.accountKeys;
+        const accountKeys = accKeysBytes.map((key: any) => bs58.encode(key));
+        const txSig = bs58.encode(data.transaction.transaction.signature);
+        let matchingAccount = "";
+
+        accountKeys.forEach((account: any) => {
+          if (COPY_ACCOUNTS.includes(account)) {
+            dataDetectedCount += 1;
+            console.log(
+              `\n${new Date(ts).toUTCString()}: Matching account detected from gRPC connection!`
+            );
+            matchingAccount = account;
+            console.log(
+              `${new Date(ts).toUTCString()}: Account: ${matchingAccount}`
+            );
+            console.log(`${new Date(ts).toUTCString()}: Signature: ${txSig}`);
+            console.log(
+              `${new Date(ts).toUTCString()}: gRPC stream active for: ${elapsedTime}`
+            );
+            console.log(
+              `${new Date(ts).toUTCString()}: gRPC data detected count: ${dataDetectedCount}\n`
+            );
+          }
+        });
+      } else if (data.pong) {
+        console.log(`${new Date(ts).toUTCString()}: Processed ping response!`);
+      }
+    });
+
+    // Handle stream error
+    stream.on("error", (err: any) => {
+      console.log(`Stream ERROR: ${err.stack || err}`);
+    });
+
+    // Initial account request
+    const accountRequest: SubscribeRequest = {
+      slots: {},
+      commitment: CommitmentLevel.CONFIRMED,
+      accounts: {},
+      accountsDataSlice: [],
+      transactions: {
+        txReq: {
+          vote: undefined,
+          failed: undefined,
+          signature: undefined,
+          accountInclude: COPY_ACCOUNTS,
+          accountExclude: {},
+          accountRequired: {},
+        },
+      },
+      transactionsStatus: {},
+      blocks: {},
+      blocksMeta: {},
+      entry: {},
+    };
+
     await new Promise<void>((resolve, reject) => {
-      stream.write(pingRequest, (err: any) => {
+      stream.write(accountRequest, (err: any) => {
         if (err === null || err === undefined) {
           resolve();
         } else {
           reject(err);
         }
       });
-    }).catch((reason) => {
-      console.error(reason);
-      throw reason;
     });
-  }, PING_INTERVAL_MS);
 
-  const streamClosed = new Promise<void>((resolve, reject) => {
-    stream.on("error", (error) => {
-      reject(error);
-      stream.end();
-    });
-    stream.on("end", () => {
-      clearInterval(pingInterval);
-      resolve();
-    });
-    stream.on("close", () => {
-      clearInterval(pingInterval);
-      resolve();
-    });
-  });
-
-  stream.on("data", async (data) => {
-    const ts = Date.now();
-    const elapsed = Math.floor((ts - startTime) / 1000);
-    elapsedTime = formatElapsedTime(elapsed);
-
-    if (data.filters[0] === "txReq") {
-      const accKeysBytes =
-        data.transaction.transaction.transaction.message.accountKeys;
-      const accountKeys = accKeysBytes.map((key: any) => bs58.encode(key));
-      const txSig = bs58.encode(data.transaction.transaction.signature);
-      let matchingAccount = "";
-
-      accountKeys.forEach((account: any) => {
-        if (COPY_ACCOUNTS.includes(account)) {
-          dataDetectedCount += 1;
-          console.log(
-            `\n${new Date(ts).toUTCString()}: Matching account detected from gRPC connection!`
-          );
-          matchingAccount = account;
-          console.log(
-            `${new Date(ts).toUTCString()}: Account: ${matchingAccount}`
-          );
-          console.log(`${new Date(ts).toUTCString()}: Signature: ${txSig}`);
-          console.log(
-            `${new Date(ts).toUTCString()}: gRPC stream active for: ${elapsedTime}`
-          );
-          console.log(
-            `${new Date(ts).toUTCString()}: gRPC data detected count: ${dataDetectedCount}\n`
-          );
+    // Handle ping interval write
+    await new Promise<void>((resolve, reject) => {
+      stream.write(pingInterval, (err: any) => {
+        if (err === null || err === undefined) {
+          resolve();
+        } else {
+          reject(err);
         }
       });
-    } else if (data.pong) {
-      console.log(`${new Date(ts).toUTCString()}: Processed ping response!`);
-    }
-  });
-
-  const accountRequest: SubscribeRequest = {
-    slots: {},
-    commitment: CommitmentLevel.CONFIRMED,
-    accounts: {},
-    accountsDataSlice: [],
-    transactions: {
-      txReq: {
-        vote: undefined,
-        failed: undefined,
-        signature: undefined,
-        accountInclude: COPY_ACCOUNTS,
-        accountExclude: {},
-        accountRequired: {},
-      },
-    },
-    transactionsStatus: {},
-    blocks: {},
-    blocksMeta: {},
-    entry: {},
-  };
-
-  await new Promise<void>((resolve, reject) => {
-    stream.write(accountRequest, (err: any) => {
-      if (err === null || err === undefined) {
-        resolve();
-      } else {
-        reject(err);
-      }
     });
-  }).catch((reason) => {
-    console.error(reason);
-    throw reason;
-  });
 
-  return new Promise<IResults>((resolve) => {
-    setTimeout(() => {
-      stream
-        .removeAllListeners()
-        .once("error", () => {
-          resolve({ time: elapsedTime, count: dataDetectedCount });
-        })
-        .cancel();
-    }, TEST_DURATION * 1000);
-  });
+    return new Promise<IResults>((resolve) => {
+      setTimeout(() => {
+        stream
+          .removeAllListeners()
+          .once("error", () => {
+            resolve({ time: elapsedTime, count: dataDetectedCount });
+          })
+          .cancel();
+      }, TEST_DURATION * 1000);
+    });
+  } catch (e: any) {
+    console.log(`ERROR: ${e.stack || e}`);
+    return new Promise<IResults>((resolve) => {
+      resolve({ time: "-1", count: -1 });
+    });
+  }
 }
 
 async function testGrpcCalls() {
   const startTime = Date.now();
   let callsMade = 0;
-  const client = new Client(GRPC_URL, X_TOKEN, {});
 
-  while (true) {
-    const ts = Date.now();
-    const elapsed = Math.floor((ts - startTime) / 1000);
-    const elapsedTime = formatElapsedTime(elapsed);
+  try {
+    const client = new Client(GRPC_URL, X_TOKEN, {});
 
-    if (TEST_DURATION > 0) {
-      if (elapsed > TEST_DURATION) {
-        return { time: elapsedTime, count: callsMade };
+    while (true) {
+      const ts = Date.now();
+      const elapsed = Math.floor((ts - startTime) / 1000);
+      const elapsedTime = formatElapsedTime(elapsed);
+
+      if (TEST_DURATION > 0) {
+        if (elapsed > TEST_DURATION) {
+          return { time: elapsedTime, count: callsMade };
+        }
+      }
+
+      try {
+        const latestBlockhash = await client.getLatestBlockhash();
+        callsMade += 1;
+
+        console.log(
+          `\n${new Date(ts).toUTCString()}: Latest blockhash received from gRPC call!`
+        );
+        console.log(
+          `${new Date(ts).toUTCString()}: Latest blockhash from chain: ${latestBlockhash.blockhash}`
+        );
+        console.log(
+          `${new Date(ts).toUTCString()}: gRPC calls active for: ${elapsedTime}`
+        );
+        console.log(
+          `${new Date(ts).toUTCString()}: gRPC calls consecutively made: ${callsMade}\n`
+        );
+      } catch (error) {
+        callsMade = 0;
+        console.error(`HTTP Error: ${error}`);
       }
     }
-
-    try {
-      const latestBlockhash = await client.getLatestBlockhash();
-      callsMade += 1;
-
-      console.log(
-        `\n${new Date(ts).toUTCString()}: Latest blockhash received from gRPC call!`
-      );
-      console.log(
-        `${new Date(ts).toUTCString()}: Latest blockhash from chain: ${latestBlockhash.blockhash}`
-      );
-      console.log(
-        `${new Date(ts).toUTCString()}: gRPC calls active for: ${elapsedTime}`
-      );
-      console.log(
-        `${new Date(ts).toUTCString()}: gRPC calls consecutively made: ${callsMade}\n`
-      );
-    } catch (error) {
-      callsMade = 0;
-      console.error(`HTTP Error: ${error}`);
-    }
+  } catch (e: any) {
+    console.log(`ERROR: ${e}`);
+    return { time: "-1", count: -1 };
   }
 }
 
@@ -247,123 +255,141 @@ async function testWebSocketStream(): Promise<IResults> {
   let elapsedTime = "0";
   let dataDetectedCount = 0;
 
-  const ws = new WebSocket(WS_URL);
-  let websocketInitialize = true;
+  try {
+    const ws = new WebSocket(WS_URL);
+    let websocketInitialize = true;
 
-  let startTime: number;
+    let startTime: number;
 
-  ws.on("open", () => {
-    const request = {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "logsSubscribe",
-      params: [{ mentions: COPY_ACCOUNTS }, { commitment: "finalized" }],
-    };
+    ws.on("open", () => {
+      const request = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "logsSubscribe",
+        params: [{ mentions: COPY_ACCOUNTS }, { commitment: "finalized" }],
+      };
 
-    ws.send(JSON.stringify(request));
-    console.log("\nWebSocket connection opened and subscription request sent");
-  });
+      ws.send(JSON.stringify(request));
+      console.log(
+        "\nWebSocket connection opened and subscription request sent"
+      );
+    });
 
-  ws.on("message", (message) => {
-    try {
-      const responseDict = JSON.parse(message.toString());
+    ws.on("message", (message) => {
+      try {
+        const responseDict = JSON.parse(message.toString());
 
-      if ("result" in responseDict) {
-        if (websocketInitialize) {
-          websocketInitialize = false;
-          console.log("WebSocket initialized\n");
-          startTime = Date.now();
+        if ("result" in responseDict) {
+          if (websocketInitialize) {
+            websocketInitialize = false;
+            console.log("WebSocket initialized\n");
+            startTime = Date.now();
+          }
         }
-      }
 
-      if (responseDict.params?.result?.value?.err === null) {
-        const ts = Date.now();
-        const elapsed = Math.floor((ts - startTime) / 1000);
-        elapsedTime = formatElapsedTime(elapsed);
-        const txSig = responseDict.params.result.value.signature;
-        dataDetectedCount += 1;
-        console.log(
-          `${new Date(ts).toUTCString()}: Matching account detected from WEBSOCKET connection!`
-        );
-        console.log(
-          `${new Date(ts).toUTCString()}: Account: ${COPY_ACCOUNTS[0]}`
-        );
-        console.log(`${new Date(ts).toUTCString()}: Signature: ${txSig}`);
-        console.log(
-          `${new Date(ts).toUTCString()}: WebSocket stream active for: ${elapsedTime}`
-        );
-        console.log(
-          `${new Date(ts).toUTCString()}: WebSocket data detected count: ${dataDetectedCount}\n`
-        );
-      } else {
-        if (responseDict.params?.result?.value?.err) {
-          console.warn("Error in detected transaction... Skipping processing");
+        if (responseDict.params?.result?.value?.err === null) {
+          const ts = Date.now();
+          const elapsed = Math.floor((ts - startTime) / 1000);
+          elapsedTime = formatElapsedTime(elapsed);
+          const txSig = responseDict.params.result.value.signature;
+          dataDetectedCount += 1;
+          console.log(
+            `${new Date(ts).toUTCString()}: Matching account detected from WEBSOCKET connection!`
+          );
+          console.log(
+            `${new Date(ts).toUTCString()}: Account: ${COPY_ACCOUNTS[0]}`
+          );
+          console.log(`${new Date(ts).toUTCString()}: Signature: ${txSig}`);
+          console.log(
+            `${new Date(ts).toUTCString()}: WebSocket stream active for: ${elapsedTime}`
+          );
+          console.log(
+            `${new Date(ts).toUTCString()}: WebSocket data detected count: ${dataDetectedCount}\n`
+          );
+        } else {
+          if (responseDict.params?.result?.value?.err) {
+            console.warn(
+              "Error in detected transaction... Skipping processing"
+            );
+          }
         }
+      } catch (error) {
+        console.error("Error processing WebSocket message:", error);
       }
-    } catch (error) {
-      console.error("Error processing WebSocket message:", error);
-    }
-  });
+    });
 
-  ws.on("error", (error) => {
-    console.error("WebSocket error:", error);
-  });
+    ws.on("error", (error) => {
+      console.error("WebSocket error:", error);
+    });
 
-  ws.on("close", (code, reason) => {
-    ws.removeAllListeners();
-    console.log(`WebSocket connection closed (code ${code}): ${reason}`);
-  });
-
-  return new Promise<IResults>((resolve) => {
-    setTimeout(() => {
-      ws.close();
+    ws.on("close", (code, reason) => {
       ws.removeAllListeners();
-      resolve({ time: elapsedTime, count: dataDetectedCount });
-    }, TEST_DURATION * 1000);
-  });
+      console.log(`WebSocket connection closed (code ${code}): ${reason}`);
+    });
+
+    return new Promise<IResults>((resolve) => {
+      setTimeout(() => {
+        ws.close();
+        ws.removeAllListeners();
+        resolve({ time: elapsedTime, count: dataDetectedCount });
+      }, TEST_DURATION * 1000);
+    });
+  } catch (e: any) {
+    console.log(`ERROR: ${e}`);
+    return { time: "-1", count: -1 };
+  }
 }
 
 async function testHttpCalls() {
   const startTime = Date.now();
   let callsMade = 0;
 
-  while (true) {
-    const ts = Date.now();
-    const elapsed = Math.floor((ts - startTime) / 1000);
-    const elapsedTime = formatElapsedTime(elapsed);
+  try {
+    const CONNECTION_HTTP = new Connection(HTTP_URL, {
+      commitment: COMMITMENT_LEVEL,
+    });
 
-    if (TEST_DURATION > 0) {
-      if (elapsed > TEST_DURATION) {
-        return { time: elapsedTime, count: callsMade };
+    while (true) {
+      const ts = Date.now();
+      const elapsed = Math.floor((ts - startTime) / 1000);
+      const elapsedTime = formatElapsedTime(elapsed);
+
+      if (TEST_DURATION > 0) {
+        if (elapsed > TEST_DURATION) {
+          return { time: elapsedTime, count: callsMade };
+        }
+      }
+
+      try {
+        const sigsForAccount = await CONNECTION_HTTP.getSignaturesForAddress(
+          new PublicKey(COPY_ACCOUNTS[0])
+        );
+        const latestAccountTx = sigsForAccount[0].signature;
+        callsMade += 1;
+
+        console.log(
+          `\n${new Date(ts).toUTCString()}: Signatures for first copy account received from HTTP call!`
+        );
+        console.log(
+          `${new Date(ts).toUTCString()}: Account: ${COPY_ACCOUNTS[0]}`
+        );
+        console.log(
+          `${new Date(ts).toUTCString()}: Latest Signature from Account: ${latestAccountTx}`
+        );
+        console.log(
+          `${new Date(ts).toUTCString()}: HTTP calls active for: ${elapsedTime}`
+        );
+        console.log(
+          `${new Date(ts).toUTCString()}: HTTP calls consecutively made: ${callsMade}\n`
+        );
+      } catch (error) {
+        callsMade = 0;
+        console.error(`HTTP Error: ${error}`);
       }
     }
-
-    try {
-      const sigsForAccount = await CONNECTION_HTTP.getSignaturesForAddress(
-        new PublicKey(COPY_ACCOUNTS[0])
-      );
-      const latestAccountTx = sigsForAccount[0].signature;
-      callsMade += 1;
-
-      console.log(
-        `\n${new Date(ts).toUTCString()}: Signatures for first copy account received from HTTP call!`
-      );
-      console.log(
-        `${new Date(ts).toUTCString()}: Account: ${COPY_ACCOUNTS[0]}`
-      );
-      console.log(
-        `${new Date(ts).toUTCString()}: Latest Signature from Account: ${latestAccountTx}`
-      );
-      console.log(
-        `${new Date(ts).toUTCString()}: HTTP calls active for: ${elapsedTime}`
-      );
-      console.log(
-        `${new Date(ts).toUTCString()}: HTTP calls consecutively made: ${callsMade}\n`
-      );
-    } catch (error) {
-      callsMade = 0;
-      console.error(`HTTP Error: ${error}`);
-    }
+  } catch (e: any) {
+    console.log(`ERROR: ${e}`);
+    return { time: "-1", count: -1 };
   }
 }
 
@@ -392,7 +418,7 @@ async function runTests() {
     });
   };
 
-  // gRPC Stream Test
+  // // gRPC Stream Test
   let gRpcStreamResults: IResults = { time: "0", count: 0 };
   await countdownInPlace("Starting gRPC Stream test");
   gRpcStreamResults = await testGrpcStream();

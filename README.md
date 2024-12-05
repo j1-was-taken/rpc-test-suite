@@ -82,10 +82,11 @@ To run the tests you need node.js, npm, and tsx
    GRPC_URL="https://example_endpoint:example_port"
    HTTP_URL="http://example_endpoint"
    WS_URL="ws://example_endpoint"
-   TEST_DURATION=5
+   TEST_DURATION=60
    TEST_INTERVAL=5
    ```
-
+   - Test duration: How long do you want to run each test for?
+   - Test interval: How long do you want to wait between each test?
 2. Enter your terminal and run the below...
 
 ```sh
