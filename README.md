@@ -93,6 +93,17 @@ To run the tests you need node.js, npm, and tsx
    npx tsx test.ts
 ```
 
+3. The tests below will then be run outputting the amount of data received and the duration the test was active for...
+
+ - gRPC Stream Test
+   - Connects to the gRPC endpoint and listens for transactions with the solana system clock account included (most txs have this account, so you should see a lot)
+ - gRPC Calls Test
+   - Calls the latest blockhash
+ - WebSocket Stream Test 
+   - Connects to the Websocket endpoint and listens for transactions with the solana system clock account included (most txs have this account, so you should see a lot)
+ - HTTP Calls Test
+   - Grabs the latest tx signature from the system clock account using the HTTP endpoint
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <!-- LICENSE -->
