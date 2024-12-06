@@ -655,55 +655,6 @@ async function runTests() {
     });
   };
 
-  // // // gRPC Stream Test
-  // let gRpcStreamResults: IResults = { time: "0", count: 0 };
-  // await countdownInPlace("Starting gRPC Stream test");
-  // gRpcStreamResults = await testGrpcStream();
-  // console.log(chalk.green(`gRPC Stream test completed!\n`));
-
-  // // gRPC Calls Test
-  // let gRpcCallResults: IResults = { time: "0", count: 0 };
-  // await countdownInPlace("Starting gRPC Calls test");
-  // gRpcCallResults = await testGrpcCalls();
-  // console.log(chalk.green(`gRPC Calls test completed!\n`));
-
-  // // WebSocket Stream Test
-  // let websocketStreamResults: IResults = { time: "0", count: 0 };
-  // await countdownInPlace("Starting WebSocket Stream test");
-  // websocketStreamResults = await testWebSocketStream();
-  // console.log(chalk.green(`WebSocket Stream test completed!\n`));
-
-  // // HTTP Calls Test
-  // let httpCallResults: IResults = { time: "0", count: 0 };
-  // await countdownInPlace("Starting HTTP Calls test");
-  // httpCallResults = await testHttpCalls();
-  // console.log(chalk.green(`HTTP Calls test completed!\n`));
-
-  // console.log(chalk.bold(`Test Results:\n`));
-
-  // console.log(chalk.cyan(`gRPC Stream Results:`));
-  // console.log(`Run Time: ${gRpcStreamResults.time}`);
-  // console.log(`Data Count: ${gRpcStreamResults.count}\n`);
-
-  // console.log(chalk.cyan(`gRPC Call Results:`));
-  // console.log(`Run Time: ${gRpcCallResults.time}`);
-  // console.log(`Data Count: ${gRpcCallResults.count}\n`);
-
-  // console.log(chalk.cyan(`WebSocket Stream Results:`));
-  // console.log(`Run Time: ${websocketStreamResults.time}`);
-  // console.log(`Data Count: ${websocketStreamResults.count}\n`);
-
-  // console.log(chalk.cyan(`HTTP Call Results:`));
-  // console.log(`Run Time: ${httpCallResults.time}`);
-  // console.log(`Data Count: ${httpCallResults.count}\n`);
-
-  // console.log(chalk.bold.yellow(`Configuration used in tests:\n`));
-  // console.log(chalk.yellow(`gRPC URL: ${GRPC_URL}`));
-  // console.log(chalk.yellow(`HTTP URL: ${HTTP_URL}`));
-  // console.log(chalk.yellow(`WebSocket URL: ${WS_URL}`));
-  // console.log(chalk.yellow(`Test Duration: ${TEST_DURATION} seconds`));
-  // console.log(chalk.yellow(`Test Interval: ${TEST_INTERVAL} seconds\n`));
-
   // gRPC Stream Test
   let gRpcStreamResults: IResults = { time: "0", count: 0 };
   await countdownInPlace("Starting gRPC Stream test");
