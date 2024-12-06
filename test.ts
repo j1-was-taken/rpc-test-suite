@@ -18,6 +18,11 @@ const WS_URL = process.env.WS_URL as string;
 const TEST_DURATION = Number(process.env.TEST_DURATION as string);
 const TEST_INTERVAL = Number(process.env.TEST_INTERVAL as string);
 
+const TEST_GRPC_STREAM = Number(process.env.TEST_GRPC_STREAM);
+const TEST_GRPC_CALLS = Number(process.env.TEST_GRPC_CALLS);
+const TEST_WEBSOCKET_STREAM = Number(process.env.TEST_WEBSOCKET_STREAM);
+const TEST_HTTP_CALLS = Number(process.env.TEST_HTTP_CALLS);
+
 const checkEnvVariables = () => {
   const missingVars = [];
   if (!TEST_DURATION) missingVars.push("TEST_DURATION");
@@ -41,6 +46,7 @@ const COPY_ACCOUNTS = ["SysvarC1ock11111111111111111111111111111111"];
 export interface IResults {
   time: string;
   count: number;
+  err: boolean;
 }
 
 function formatElapsedTime(seconds: number) {
@@ -67,144 +73,6 @@ function formatElapsedTime(seconds: number) {
 
   return parts.join(", ");
 }
-
-// async function testGrpcStream(): Promise<IResults> {
-//   let elapsedTime = "0";
-//   let dataDetectedCount = 0;
-
-//   try {
-//     const client = new Client(GRPC_URL, X_TOKEN, {});
-//     const stream = await client.subscribe();
-//     const startTime = Date.now();
-
-//     // Ping request object
-//     const pingRequest: SubscribeRequest = {
-//       ping: { id: 1 },
-//       accounts: {},
-//       accountsDataSlice: [],
-//       transactions: {},
-//       transactionsStatus: {},
-//       blocks: {},
-//       blocksMeta: {},
-//       entry: {},
-//       slots: {},
-//     };
-
-//     // Setup ping interval
-//     const pingInterval = setInterval(async () => {
-//       await new Promise<void>((resolve, reject) => {
-//         stream.write(pingRequest, (err: any) => {
-//           if (err === null || err === undefined) {
-//             resolve();
-//           } else {
-//             reject(err);
-//           }
-//         });
-//       });
-//     }, PING_INTERVAL_MS);
-
-//     // Handle stream data
-//     stream.on("data", (data) => {
-//       const ts = Date.now();
-//       const elapsed = Math.floor((ts - startTime) / 1000);
-//       elapsedTime = formatElapsedTime(elapsed);
-
-//       if (data.filters[0] === "txReq") {
-//         const accKeysBytes =
-//           data.transaction.transaction.transaction.message.accountKeys;
-//         const accountKeys = accKeysBytes.map((key: any) => bs58.encode(key));
-//         const txSig = bs58.encode(data.transaction.transaction.signature);
-//         let matchingAccount = "";
-
-//         accountKeys.forEach((account: any) => {
-//           if (COPY_ACCOUNTS.includes(account)) {
-//             dataDetectedCount += 1;
-//             console.log(
-//               `\n${new Date(ts).toUTCString()}: Matching account detected from gRPC connection!`
-//             );
-//             matchingAccount = account;
-//             console.log(
-//               `${new Date(ts).toUTCString()}: Account: ${matchingAccount}`
-//             );
-//             console.log(`${new Date(ts).toUTCString()}: Signature: ${txSig}`);
-//             console.log(
-//               `${new Date(ts).toUTCString()}: gRPC stream active for: ${elapsedTime}`
-//             );
-//             console.log(
-//               `${new Date(ts).toUTCString()}: gRPC data detected count: ${dataDetectedCount}\n`
-//             );
-//           }
-//         });
-//       } else if (data.pong) {
-//         console.log(`${new Date(ts).toUTCString()}: Processed ping response!`);
-//       }
-//     });
-
-//     // Handle stream error
-//     stream.on("error", (err: any) => {
-//       console.log(`Stream ERROR: ${err.stack || err}`);
-//     });
-
-//     // Initial account request
-//     const accountRequest: SubscribeRequest = {
-//       slots: {},
-//       commitment: CommitmentLevel.CONFIRMED,
-//       accounts: {},
-//       accountsDataSlice: [],
-//       transactions: {
-//         txReq: {
-//           vote: undefined,
-//           failed: undefined,
-//           signature: undefined,
-//           accountInclude: COPY_ACCOUNTS,
-//           accountExclude: {},
-//           accountRequired: {},
-//         },
-//       },
-//       transactionsStatus: {},
-//       blocks: {},
-//       blocksMeta: {},
-//       entry: {},
-//     };
-
-//     await new Promise<void>((resolve, reject) => {
-//       stream.write(accountRequest, (err: any) => {
-//         if (err === null || err === undefined) {
-//           resolve();
-//         } else {
-//           reject(err);
-//         }
-//       });
-//     });
-
-//     // Handle ping interval write
-//     await new Promise<void>((resolve, reject) => {
-//       stream.write(pingInterval, (err: any) => {
-//         if (err === null || err === undefined) {
-//           resolve();
-//         } else {
-//           reject(err);
-//         }
-//       });
-//     });
-
-//     return new Promise<IResults>((resolve) => {
-//       setTimeout(() => {
-//         stream
-//           .removeAllListeners()
-//           .once("error", () => {
-//             resolve({ time: elapsedTime, count: dataDetectedCount });
-//           })
-//           .cancel();
-//       }, TEST_DURATION * 1000);
-//     });
-//   } catch (e: any) {
-//     console.log(`ERROR: ${e.stack || e}`);
-//     return new Promise<IResults>((resolve) => {
-//       resolve({ time: "-1", count: -1 });
-//     });
-//   }
-// }
 
 async function testGrpcStream(): Promise<IResults> {
   let elapsedTime = "0";
@@ -286,7 +154,11 @@ async function testGrpcStream(): Promise<IResults> {
         console.log(`Stream ERROR: ${err.message}`);
         clearInterval(pingInterval);
         stream.removeAllListeners();
-        resolve({ time: "-1", count: -1 });
+        if (dataDetectedCount > 0) {
+          resolve({ time: elapsedTime, count: dataDetectedCount, err: true });
+        } else {
+          resolve({ time: "-1", count: -1, err: true });
+        }
       });
 
       // Initial account request
@@ -333,14 +205,22 @@ async function testGrpcStream(): Promise<IResults> {
         stream
           .removeAllListeners()
           .once("error", () => {
-            resolve({ time: elapsedTime, count: dataDetectedCount });
+            resolve({
+              time: elapsedTime,
+              count: dataDetectedCount,
+              err: false,
+            });
           })
           .cancel();
-        resolve({ time: elapsedTime, count: dataDetectedCount });
+        resolve({ time: elapsedTime, count: dataDetectedCount, err: false });
       }, TEST_DURATION * 1000);
     } catch (e: any) {
       console.log(`ERROR: ${e.message}`);
-      resolve({ time: "-1", count: -1 });
+      if (dataDetectedCount > 0) {
+        resolve({ time: elapsedTime, count: dataDetectedCount, err: true });
+      } else {
+        resolve({ time: "-1", count: -1, err: true });
+      }
     }
   });
 }
@@ -348,6 +228,7 @@ async function testGrpcStream(): Promise<IResults> {
 async function testGrpcCalls() {
   const startTime = Date.now();
   let callsMade = 0;
+  let elapsedTime = "0";
 
   try {
     const client = new Client(GRPC_URL, X_TOKEN, {});
@@ -355,11 +236,11 @@ async function testGrpcCalls() {
     while (true) {
       const ts = Date.now();
       const elapsed = Math.floor((ts - startTime) / 1000);
-      const elapsedTime = formatElapsedTime(elapsed);
+      elapsedTime = formatElapsedTime(elapsed);
 
       if (TEST_DURATION > 0) {
         if (elapsed > TEST_DURATION) {
-          return { time: elapsedTime, count: callsMade };
+          return { time: elapsedTime, count: callsMade, err: false };
         }
       }
 
@@ -377,108 +258,26 @@ async function testGrpcCalls() {
           `${new Date(ts).toUTCString()}: gRPC calls active for: ${elapsedTime}`
         );
         console.log(
-          `${new Date(ts).toUTCString()}: gRPC calls consecutively made: ${callsMade}\n`
+          `${new Date(ts).toUTCString()}: gRPC calls made: ${callsMade}\n`
         );
       } catch (error) {
-        callsMade = 0;
         console.error(`HTTP Error: ${error}`);
-        return { time: "-1", count: -1 };
+        if (callsMade > 0) {
+          return { time: elapsedTime, count: callsMade, err: true };
+        } else {
+          return { time: "-1", count: -1, err: true };
+        }
       }
     }
   } catch (e: any) {
     console.log(`ERROR: ${e}`);
-    return { time: "-1", count: -1 };
+    if (callsMade > 0) {
+      return { time: elapsedTime, count: callsMade, err: true };
+    } else {
+      return { time: "-1", count: -1, err: true };
+    }
   }
 }
-
-// async function testWebSocketStream(): Promise<IResults> {
-//   let elapsedTime = "0";
-//   let dataDetectedCount = 0;
-
-//   try {
-//     const ws = new WebSocket(WS_URL);
-//     let websocketInitialize = true;
-
-//     let startTime: number;
-
-//     ws.on("open", () => {
-//       const request = {
-//         jsonrpc: "2.0",
-//         id: 1,
-//         method: "logsSubscribe",
-//         params: [{ mentions: COPY_ACCOUNTS }, { commitment: "finalized" }],
-//       };
-
-//       ws.send(JSON.stringify(request));
-//       console.log(
-//         "\nWebSocket connection opened and subscription request sent"
-//       );
-//     });
-
-//     ws.on("message", (message) => {
-//       try {
-//         const responseDict = JSON.parse(message.toString());
-
-//         if ("result" in responseDict) {
-//           if (websocketInitialize) {
-//             websocketInitialize = false;
-//             console.log("WebSocket initialized\n");
-//             startTime = Date.now();
-//           }
-//         }
-
-//         if (responseDict.params?.result?.value?.err === null) {
-//           const ts = Date.now();
-//           const elapsed = Math.floor((ts - startTime) / 1000);
-//           elapsedTime = formatElapsedTime(elapsed);
-//           const txSig = responseDict.params.result.value.signature;
-//           dataDetectedCount += 1;
-//           console.log(
-//             `${new Date(ts).toUTCString()}: Matching account detected from WEBSOCKET connection!`
-//           );
-//           console.log(
-//             `${new Date(ts).toUTCString()}: Account: ${COPY_ACCOUNTS[0]}`
-//           );
-//           console.log(`${new Date(ts).toUTCString()}: Signature: ${txSig}`);
-//           console.log(
-//             `${new Date(ts).toUTCString()}: WebSocket stream active for: ${elapsedTime}`
-//           );
-//           console.log(
-//             `${new Date(ts).toUTCString()}: WebSocket data detected count: ${dataDetectedCount}\n`
-//           );
-//         } else {
-//           if (responseDict.params?.result?.value?.err) {
-//             console.warn(
-//               "Error in detected transaction... Skipping processing"
-//             );
-//           }
-//         }
-//       } catch (error) {
-//         console.error("Error processing WebSocket message:", error);
-//       }
-//     });
-
-//     ws.on("error", (error) => {
-//       console.error("WebSocket error:", error);
-//     });
-
-//     ws.on("close", (code, reason) => {
-//       ws.removeAllListeners();
-//       console.log(`WebSocket connection closed (code ${code}): ${reason}`);
-//     });
-
-//     return new Promise<IResults>((resolve) => {
-//       setTimeout(() => {
-//         ws.close();
-//         ws.removeAllListeners();
-//         resolve({ time: elapsedTime, count: dataDetectedCount });
-//       }, TEST_DURATION * 1000);
-//     });
-//   } catch (e: any) {
-//     console.log(`ERROR: ${e}`);
-//     return { time: "-1", count: -1 };
-//   }
-// }
 
 async function testWebSocketStream(): Promise<IResults> {
   let elapsedTime = "0";
@@ -546,7 +345,11 @@ async function testWebSocketStream(): Promise<IResults> {
           console.error("Error processing WebSocket message:", error);
           ws.close();
           ws.removeAllListeners();
-          resolve({ time: "-1", count: -1 }); // Resolve with error result
+          if (dataDetectedCount > 0) {
+            resolve({ time: elapsedTime, count: dataDetectedCount, err: true });
+          } else {
+            resolve({ time: "-1", count: -1, err: true });
+          }
         }
       });
 
@@ -554,23 +357,27 @@ async function testWebSocketStream(): Promise<IResults> {
         console.error("WebSocket error:", error.message);
         ws.close();
         ws.removeAllListeners();
-        resolve({ time: "-1", count: -1 }); // Resolve with error result
+        resolve({ time: "-1", count: -1, err: true }); // Resolve with error result
       });
 
       ws.on("close", (code, reason) => {
         ws.removeAllListeners();
         console.log(`WebSocket connection closed (code ${code}): ${reason}`);
-        resolve({ time: elapsedTime, count: dataDetectedCount }); // Ensure resolve on close
+        resolve({ time: elapsedTime, count: dataDetectedCount, err: false }); // Ensure resolve on close
       });
 
       setTimeout(() => {
         ws.close();
         ws.removeAllListeners();
-        resolve({ time: elapsedTime, count: dataDetectedCount });
+        resolve({ time: elapsedTime, count: dataDetectedCount, err: false });
       }, TEST_DURATION * 1000);
     } catch (e: any) {
       console.log(`ERROR: ${e.message}`);
-      resolve({ time: "-1", count: -1 });
+      if (dataDetectedCount > 0) {
+        resolve({ time: elapsedTime, count: dataDetectedCount, err: false });
+      } else {
+        resolve({ time: "-1", count: -1, err: false });
+      }
     }
   });
 }
@@ -578,6 +385,9 @@ async function testWebSocketStream(): Promise<IResults> {
 async function testHttpCalls() {
   const startTime = Date.now();
   let callsMade = 0;
+  let elapsedTime = "0";
+
+  return { time: "13", count: 2, err: true };
 
   try {
     const CONNECTION_HTTP = new Connection(HTTP_URL, {
@@ -587,11 +397,11 @@ async function testHttpCalls() {
     while (true) {
       const ts = Date.now();
       const elapsed = Math.floor((ts - startTime) / 1000);
-      const elapsedTime = formatElapsedTime(elapsed);
+      elapsedTime = formatElapsedTime(elapsed);
 
       if (TEST_DURATION > 0) {
         if (elapsed > TEST_DURATION) {
-          return { time: elapsedTime, count: callsMade };
+          return { time: elapsedTime, count: callsMade, err: false };
         }
       }
 
@@ -615,17 +425,24 @@ async function testHttpCalls() {
           `${new Date(ts).toUTCString()}: HTTP calls active for: ${elapsedTime}`
         );
         console.log(
-          `${new Date(ts).toUTCString()}: HTTP calls consecutively made: ${callsMade}\n`
+          `${new Date(ts).toUTCString()}: HTTP calls made: ${callsMade}\n`
         );
       } catch (error) {
-        callsMade = 0;
         console.error(`HTTP Error: ${error}`);
-        return { time: "-1", count: -1 };
+        if (callsMade > 0) {
+          return { time: elapsedTime, count: callsMade, err: true };
+        } else {
+          return { time: "-1", count: -1, err: true };
+        }
       }
     }
   } catch (e: any) {
     console.log(`ERROR: ${e}`);
-    return { time: "-1", count: -1 };
+    if (callsMade > 0) {
+      return { time: elapsedTime, count: callsMade, err: true };
+    } else {
+      return { time: "-1", count: -1, err: true };
+    }
   }
 }
 
@@ -637,6 +454,24 @@ async function runTests() {
   console.log(chalk.yellow(`WebSocket URL: ${WS_URL}`));
   console.log(chalk.yellow(`Test Duration: ${TEST_DURATION} seconds`));
   console.log(chalk.yellow(`Test Interval: ${TEST_INTERVAL} seconds\n`));
+  console.log(
+    chalk.yellow(
+      `Test gRPC Stream: ${TEST_GRPC_STREAM ? "Enabled" : "Disabled"}`
+    )
+  );
+  console.log(
+    chalk.yellow(`Test gRPC Calls: ${TEST_GRPC_CALLS ? "Enabled" : "Disabled"}`)
+  );
+  console.log(
+    chalk.yellow(
+      `Test WebSocket Stream: ${TEST_WEBSOCKET_STREAM ? "Enabled" : "Disabled"}`
+    )
+  );
+  console.log(
+    chalk.yellow(
+      `Test HTTP Calls: ${TEST_HTTP_CALLS ? "Enabled" : "Disabled"}\n`
+    )
+  );
 
   const countdownInPlace = (message: string): Promise<void> => {
     return new Promise((resolve) => {
@@ -655,95 +490,166 @@ async function runTests() {
     });
   };
 
+  let gRpcStreamResults: IResults = { time: "0", count: 0, err: false };
+  let gRpcCallResults: IResults = { time: "0", count: 0, err: false };
+  let httpCallResults: IResults = { time: "0", count: 0, err: false };
+  let websocketStreamResults: IResults = { time: "0", count: 0, err: false };
+
   // gRPC Stream Test
-  let gRpcStreamResults: IResults = { time: "0", count: 0 };
-  await countdownInPlace("Starting gRPC Stream test");
-  gRpcStreamResults = await testGrpcStream();
-  if (gRpcStreamResults.count === -1) {
-    console.log(
-      chalk.red(
-        `gRPC Stream encountered an error, continuing with other endpoint tests...\n`
-      )
-    );
-  } else {
-    console.log(chalk.green(`gRPC Stream test completed!\n`));
+  if (TEST_GRPC_STREAM) {
+    await countdownInPlace("Starting gRPC Stream test");
+    gRpcStreamResults = await testGrpcStream();
+    if (gRpcStreamResults.err) {
+      console.log(
+        chalk.red(
+          `gRPC Stream encountered an error, continuing with other endpoint tests...\n`
+        )
+      );
+    } else {
+      console.log(chalk.green(`gRPC Stream test completed!\n`));
+    }
   }
 
   // gRPC Calls Test
-  let gRpcCallResults: IResults = { time: "0", count: 0 };
-  await countdownInPlace("Starting gRPC Calls test");
-  gRpcCallResults = await testGrpcCalls();
-  if (gRpcCallResults.count === -1) {
-    console.log(
-      chalk.red(
-        `gRPC Calls encountered an error, continuing with other endpoint tests...\n`
-      )
-    );
-  } else {
-    console.log(chalk.green(`gRPC Calls test completed!\n`));
+  if (TEST_GRPC_CALLS) {
+    await countdownInPlace("Starting gRPC Calls test");
+    gRpcCallResults = await testGrpcCalls();
+    if (gRpcCallResults.err) {
+      console.log(
+        chalk.red(
+          `gRPC Calls encountered an error, continuing with other endpoint tests...\n`
+        )
+      );
+    } else {
+      console.log(chalk.green(`gRPC Calls test completed!\n`));
+    }
   }
 
   // WebSocket Stream Test
-  let websocketStreamResults: IResults = { time: "0", count: 0 };
-  await countdownInPlace("Starting WebSocket Stream test");
-  websocketStreamResults = await testWebSocketStream();
-  if (websocketStreamResults.count === -1) {
-    console.log(
-      chalk.red(
-        `WebSocket Stream encountered an error, continuing with other endpoint tests...\n`
-      )
-    );
-  } else {
-    console.log(chalk.green(`WebSocket Stream test completed!\n`));
+  if (TEST_WEBSOCKET_STREAM) {
+    await countdownInPlace("Starting WebSocket Stream test");
+    websocketStreamResults = await testWebSocketStream();
+    if (websocketStreamResults.err) {
+      console.log(
+        chalk.red(
+          `WebSocket Stream encountered an error, continuing with other endpoint tests...\n`
+        )
+      );
+    } else {
+      console.log(chalk.green(`WebSocket Stream test completed!\n`));
+    }
   }
 
   // HTTP Calls Test
-  let httpCallResults: IResults = { time: "0", count: 0 };
-  await countdownInPlace("Starting HTTP Calls test");
-  httpCallResults = await testHttpCalls();
-  if (httpCallResults.count === -1) {
-    console.log(
-      chalk.red(
-        `HTTP Calls encountered an error, continuing with other endpoint tests...\n`
-      )
-    );
-  } else {
-    console.log(chalk.green(`HTTP Calls test completed!\n`));
+  if (TEST_HTTP_CALLS) {
+    await countdownInPlace("Starting HTTP Calls test");
+    httpCallResults = await testHttpCalls();
+    if (httpCallResults.err) {
+      console.log(
+        chalk.red(
+          `HTTP Calls encountered an error, continuing with other endpoint tests...\n`
+        )
+      );
+    } else {
+      console.log(chalk.green(`HTTP Calls test completed!\n`));
+    }
   }
 
   console.log(chalk.bold(`Test Results:\n`));
 
-  console.log(chalk.cyan(`gRPC Stream Results:`));
-  console.log(
-    `Run Time: ${gRpcStreamResults.time !== "-1" ? chalk.green(gRpcStreamResults.time) : chalk.red("Error occurred")}`
-  );
-  console.log(
-    `Data Count: ${gRpcStreamResults.count !== -1 ? chalk.green(gRpcStreamResults.count) : chalk.red("Error occurred")}\n`
-  );
+  if (TEST_GRPC_STREAM) {
+    console.log(chalk.cyan(`gRPC Stream Results:`));
+    console.log(
+      `Run Time: ${
+        !gRpcStreamResults.err && gRpcStreamResults.count > 0
+          ? chalk.green(gRpcStreamResults.time)
+          : gRpcStreamResults.err && gRpcStreamResults.count > 0
+            ? chalk.hex("#FFA500")(`${gRpcStreamResults.time} - Error occurred`)
+            : chalk.red("0 - Error occurred")
+      }`
+    );
+    console.log(
+      `Data Count: ${
+        !gRpcStreamResults.err && gRpcStreamResults.count > 0
+          ? chalk.green(gRpcStreamResults.count)
+          : gRpcStreamResults.err && gRpcStreamResults.count > 0
+            ? chalk.hex("#FFA500")(
+                `${gRpcStreamResults.count} - Error occurred`
+              )
+            : chalk.red("0 - Error occurred")
+      }\n`
+    );
+  }
 
-  console.log(chalk.cyan(`gRPC Call Results:`));
-  console.log(
-    `Run Time: ${gRpcCallResults.time !== "-1" ? chalk.green(gRpcCallResults.time) : chalk.red("Error occurred")}`
-  );
-  console.log(
-    `Data Count: ${gRpcCallResults.count !== -1 ? chalk.green(gRpcCallResults.count) : chalk.red("Error occurred")}\n`
-  );
+  if (TEST_GRPC_CALLS) {
+    console.log(chalk.cyan(`gRPC Call Results:`));
+    console.log(
+      `Run Time: ${
+        !gRpcCallResults.err && gRpcCallResults.count > 0
+          ? chalk.green(gRpcCallResults.time)
+          : gRpcCallResults.err && gRpcCallResults.count > 0
+            ? chalk.hex("#FFA500")(`${gRpcCallResults.time} - Error occurred`)
+            : chalk.red("0 - Error occurred")
+      }`
+    );
+    console.log(
+      `Data Count: ${
+        !gRpcCallResults.err && gRpcCallResults.count > 0
+          ? chalk.green(gRpcCallResults.count)
+          : gRpcCallResults.err && gRpcCallResults.count > 0
+            ? chalk.hex("#FFA500")(`${gRpcCallResults.count} - Error occurred`)
+            : chalk.red("0 - Error occurred")
+      }\n`
+    );
+  }
 
-  console.log(chalk.cyan(`WebSocket Stream Results:`));
-  console.log(
-    `Run Time: ${websocketStreamResults.time !== "-1" ? chalk.green(websocketStreamResults.time) : chalk.red("Error occurred")}`
-  );
-  console.log(
-    `Data Count: ${websocketStreamResults.count !== -1 ? chalk.green(websocketStreamResults.count) : chalk.red("Error occurred")}\n`
-  );
+  if (TEST_WEBSOCKET_STREAM) {
+    console.log(chalk.cyan(`WebSocket Stream Results:`));
+    console.log(
+      `Run Time: ${
+        !websocketStreamResults.err && websocketStreamResults.count > 0
+          ? chalk.green(websocketStreamResults.time)
+          : websocketStreamResults.err && websocketStreamResults.count > 0
+            ? chalk.hex("#FFA500")(
+                `${websocketStreamResults.time} - Error occurred`
+              )
+            : chalk.red("0 - Error occurred")
+      }`
+    );
+    console.log(
+      `Data Count: ${
+        !websocketStreamResults.err && websocketStreamResults.count > 0
+          ? chalk.green(websocketStreamResults.count)
+          : websocketStreamResults.err && websocketStreamResults.count > 0
+            ? chalk.hex("#FFA500")(
+                `${websocketStreamResults.count} - Error occurred`
+              )
+            : chalk.red("0 - Error occurred")
+      }\n`
+    );
+  }
 
-  console.log(chalk.cyan(`HTTP Call Results:`));
-  console.log(
-    `Run Time: ${httpCallResults.time !== "-1" ? chalk.green(httpCallResults.time) : chalk.red("Error occurred")}`
-  );
-  console.log(
-    `Data Count: ${httpCallResults.count !== -1 ? chalk.green(httpCallResults.count) : chalk.red("Error occurred")}\n`
-  );
+  if (TEST_HTTP_CALLS) {
+    console.log(chalk.cyan(`HTTP Call Results:`));
+    console.log(
+      `Run Time: ${
+        !httpCallResults.err && httpCallResults.count > 0
+          ? chalk.green(httpCallResults.time)
+          : httpCallResults.err && httpCallResults.count > 0
+            ? chalk.hex("#FFA500")(`${httpCallResults.time} - Error occurred`)
+            : chalk.red("0 - Error occurred")
+      }`
+    );
+    console.log(
+      `Data Count: ${
+        !httpCallResults.err && httpCallResults.count > 0
+          ? chalk.green(httpCallResults.count)
+          : httpCallResults.err && httpCallResults.count > 0
+            ? chalk.hex("#FFA500")(`${httpCallResults.count} - Error occurred`)
+            : chalk.red("0 - Error occurred")
+      }\n`
+    );
+  }
 
   console.log(chalk.bold.yellow(`Configuration used in tests:\n`));
   console.log(chalk.yellow(`gRPC URL: ${GRPC_URL}`));
@@ -751,12 +657,30 @@ async function runTests() {
   console.log(chalk.yellow(`WebSocket URL: ${WS_URL}`));
   console.log(chalk.yellow(`Test Duration: ${TEST_DURATION} seconds`));
   console.log(chalk.yellow(`Test Interval: ${TEST_INTERVAL} seconds\n`));
+  console.log(
+    chalk.yellow(
+      `Test gRPC Stream: ${TEST_GRPC_STREAM ? "Enabled" : "Disabled"}`
+    )
+  );
+  console.log(
+    chalk.yellow(`Test gRPC Calls: ${TEST_GRPC_CALLS ? "Enabled" : "Disabled"}`)
+  );
+  console.log(
+    chalk.yellow(
+      `Test WebSocket Stream: ${TEST_WEBSOCKET_STREAM ? "Enabled" : "Disabled"}`
+    )
+  );
+  console.log(
+    chalk.yellow(
+      `Test HTTP Calls: ${TEST_HTTP_CALLS ? "Enabled" : "Disabled"}\n`
+    )
+  );
 
   const endTime = Date.now();
   const elapsedTime = formatElapsedTime(
     Math.floor((endTime - startTime) / 1000)
   );
-  console.log(chalk.bold(`Done in ${elapsedTime}.`));
+  console.log(chalk.green(`Done in ${elapsedTime}`));
 }
 
 runTests();
