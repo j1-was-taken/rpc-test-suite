@@ -680,7 +680,7 @@ async function runTests() {
   const elapsedTime = formatElapsedTime(
     Math.floor((endTime - startTime) / 1000)
   );
-  console.log(chalk.green(`Done in ${elapsedTime}`));
+  console.log(chalk.bold(`Done in ${elapsedTime}`));
 }
 
 runTests();
