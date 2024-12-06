@@ -118,9 +118,9 @@ Distributed under the MIT License. See `LICENSE.txt` for more information.
 
 ## Contact
 
-Your Name - [@j1_was_taken](https://twitter.com/j1_was_taken)
+[@j1_was_taken](https://twitter.com/j1_was_taken)
 
-Project Link: [https://github.com/j1-was-taken/rpc-test-suite](https://github.com/j1-was-taken/rpc-test-suite)
+[https://github.com/j1-was-taken/rpc-test-suite](https://github.com/j1-was-taken/rpc-test-suite)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
