@@ -8,6 +8,7 @@ import WebSocket from "ws";
 import chalk from "chalk";
 import readline from "readline";
 import dotenv from "dotenv";
+import fetch from "node-fetch";
 
 dotenv.config();
 
@@ -76,9 +77,39 @@ function formatElapsedTime(seconds: number) {
   return parts.join(", ");
 }
 
+async function checkServerMaintenance(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "User-Agent": "curl/8.4.0", // Match curl for consistency
+        Accept: "*/*",
+      },
+    });
+
+    // Check if server responds with a 503 status (Service Unavailable)
+    if (response.status === 503) {
+      const body = await response.text();
+      if (body.includes("Service under maintenance")) {
+        console.log("Server is under maintenance. HTTP Status: 503");
+        return true; // Server is under maintenance
+      }
+    }
+  } catch (error) {
+    console.error("Error checking server maintenance:", error);
+  }
+
+  return false; // Server is not under maintenance
+}
+
 async function testGrpcStream(): Promise<IResults> {
   let elapsedTime = "0";
   let dataDetectedCount = 0;
+
+  const isServerUnderMaintenance = await checkServerMaintenance(GRPC_URL);
+  if (isServerUnderMaintenance) {
+    return { time: "-1", count: -1, err: true }; // If under maintenance, return early with error state
+  }
 
   return new Promise<IResults>(async (resolve) => {
     try {
@@ -156,7 +187,9 @@ async function testGrpcStream(): Promise<IResults> {
         if (ERROR_LEVEL == "stack") {
           console.log(`gRPC Stream ERROR message: ${err.stack}`);
         } else {
-          console.log(`gRPC Stream ERROR message: ${err.message.replace("\n", "")}`);
+          console.log(
+            `gRPC Stream ERROR message: ${err.message.replace("\n", "")}`
+          );
         }
 
         clearInterval(pingInterval);
@@ -225,7 +258,9 @@ async function testGrpcStream(): Promise<IResults> {
       if (ERROR_LEVEL == "stack") {
         console.log(`[TOP] gRPC Stream ERROR message: ${e.stack}`);
       } else {
-        console.log(`[TOP] gRPC Stream ERROR message: ${e.message.replace("\n", "")}`);
+        console.log(
+          `[TOP] gRPC Stream ERROR message: ${e.message.replace("\n", "")}`
+        );
       }
 
       if (dataDetectedCount > 0) {
@@ -241,6 +276,11 @@ async function testGrpcCalls() {
   const startTime = Date.now();
   let callsMade = 0;
   let elapsedTime = "0";
+
+  const isServerUnderMaintenance = await checkServerMaintenance(GRPC_URL);
+  if (isServerUnderMaintenance) {
+    return { time: "-1", count: -1, err: true }; // If under maintenance, return early with error state
+  }
 
   try {
     const client = new Client(GRPC_URL, X_TOKEN, {});
@@ -280,7 +320,7 @@ async function testGrpcCalls() {
             `gRPC Calls ERROR message: ${error.message.replace("\n", "")}`
           );
         }
-        
+
         if (callsMade > 0) {
           return { time: elapsedTime, count: callsMade, err: true };
         } else {

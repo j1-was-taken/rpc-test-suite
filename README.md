@@ -93,6 +93,12 @@ To run the tests you need node.js, npm, and tsx
    npx tsx test.ts
 ```
 
+or
+
+```sh
+   yarn test
+```
+
 3. The tests below will then be run outputting the amount of data received and the duration the test was active for...
 
    - gRPC Stream Test
