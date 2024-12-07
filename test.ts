@@ -103,9 +103,7 @@ async function checkServerMaintenance(url: string): Promise<boolean> {
         return true; // Server is under maintenance
       }
     }
-  } catch (error) {
-    console.error("Error checking server maintenance:", error);
-  }
+  } catch (error: any) {}
 
   return false; // Server is not under maintenance
 }
@@ -182,7 +180,7 @@ async function checkUrlsForLocation(urls: string[]): Promise<string[]> {
       resultMessages.push(
         chalk.yellow(`${url} -> `) +
           chalk.green(
-            `${location.city}, ${location.region}, ${location.country}`
+            `${location.city}, ${location.region}, ${location.country} ${chalk.yellow("->")} ${location.org}`
           )
       );
     } else {
@@ -200,8 +198,9 @@ async function checkUrlsForLocation(urls: string[]): Promise<string[]> {
 }
 
 async function logConfig(locations: string[]) {
-  console.log(chalk.bold.yellow(`Setup\n`));
-  console.log(chalk.bold.yellow(`Endpoints + Locations`));
+  console.log(chalk.bold.yellow(`Setup`));
+  console.log(chalk.bold.yellow());
+  console.log(chalk.bold.yellow(`Endpoint -> Location -> Organization`));
 
   locations.forEach((message) => {
     console.log(message);
@@ -863,7 +862,7 @@ async function runTests() {
 
   const endTime = Date.now();
   const elapsedTime = formatElapsedTime(
-    Math.floor((endTime - startTime) / 1000)  
+    Math.floor((endTime - startTime) / 1000)
   );
   console.log(chalk.bold(`Done in ${elapsedTime}`));
 }
