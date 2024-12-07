@@ -141,9 +141,7 @@ async function getLocationForIp(ip: string): Promise<any> {
       locationData.hostname = null; // Handle reverse DNS failure gracefully
     }
   }
-
-  console.log(locationData);
-
+  
   if (locationData && locationData.loc) {
     return locationData; // Return location data if available
   } else {
