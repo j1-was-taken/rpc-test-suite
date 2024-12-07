@@ -677,6 +677,7 @@ async function runTests() {
   const startTime = Date.now();
   const locations = await checkUrlsForLocation([GRPC_URL, HTTP_URL, WS_URL]);
 
+  console.log();
   await logConfig(locations);
 
   const countdownInPlace = (message: string): Promise<void> => {
