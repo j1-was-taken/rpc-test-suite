@@ -95,88 +95,92 @@ async function checkServerMaintenance(url: string): Promise<boolean> {
       if (body.includes("Service under maintenance")) {
         if (ERROR_LEVEL == "stack") {
           console.log(response);
+          console.log("Server is under maintenance. HTTP Status: 503");
         } else {
-          console.log("Server is under maintenance. HTTP Status: 503\n");
+          console.log("Server is under maintenance. HTTP Status: 503");
         }
 
         return true; // Server is under maintenance
       }
     }
   } catch (error) {
-    console.error("Error checking server maintenance:", error, "\n");
+    console.error("Error checking server maintenance:", error);
   }
 
   return false; // Server is not under maintenance
 }
 
 async function getIpFromUrl(url: string): Promise<string | null> {
-  try {
-    // Parse URL and extract hostname
-    const parsedUrl = new URL(url);
-    const host = parsedUrl.hostname;
+  // Parse URL and extract hostname
+  const parsedUrl = new URL(url);
+  const host = parsedUrl.hostname;
 
-    return new Promise<string | null>((resolve, reject) => {
-      // DNS lookup to get the IP address
-      dns.lookup(host, (err, address) => {
-        if (err) {
-          console.error("Error resolving IP for URL:", err, "\n");
-          reject(err);
-        } else {
-          resolve(address);
-        }
-      });
+  return new Promise<string | null>((resolve, reject) => {
+    // DNS lookup to get the IP address
+    dns.lookup(host, (err, address) => {
+      if (err) {
+        reject(err); // Reject with error
+      } else {
+        resolve(address);
+      }
     });
-  } catch (error) {
-    console.error("Error parsing URL or resolving IP:", error, "\n");
-    return null;
-  }
+  });
 }
 
+// Function to fetch location info from IP
 async function getLocationForIp(ip: string): Promise<any> {
-  try {
-    const response = await fetch(`https://ipinfo.io/${ip}/json`);
-    const locationData: any = await response.json();
+  const response = await fetch(`https://ipinfo.io/${ip}/json`);
+  const locationData: any = await response.json();
 
-    if (locationData && locationData.loc) {
-      return locationData; // Return location data if available
-    } else {
-      console.log(`No location available for IP: ${ip}\n`);
-      return null; // No location available
-    }
-  } catch (error) {
-    console.error("Error fetching location info:", error, "\n");
-    return null;
+  if (locationData && locationData.loc) {
+    return locationData; // Return location data if available
+  } else {
+    return null; // No location available
   }
 }
 
+// Function to check multiple URLs for valid locations
 async function checkUrlsForLocation(urls: string[]): Promise<string[]> {
   const validLocations: string[] = []; // Array to hold all URLs with valid locations
 
   for (let i = 0; i < urls.length; i++) {
     const url = urls[i];
+    let ip: string | null;
+    let location: any;
 
     // Resolve the IP of the URL
-    const ip = await getIpFromUrl(url);
-    if (!ip) {
-      console.log(`Unable to resolve IP for: ${url}\n`);
-      continue;
+    try {
+      ip = await getIpFromUrl(url);
+    } catch (error) {
+      console.log(chalk.red(`Location NOT found for ${chalk.bold(url)}: Check the endpoint`));
+      continue; // Continue with the next URL if IP fetch fails
+    }
+
+    if (ip == null) {
+      continue; // If IP is null, continue with the next URL
     }
 
     // Fetch location for the resolved IP
-    const location = await getLocationForIp(ip);
+    try {
+      location = await getLocationForIp(ip);
+    } catch (error) {
+      console.log(chalk.red(`Location NOT found for ${chalk.bold(url)}`));
+      continue; // Continue with the next URL if location fetch fails
+    }
+
     if (location) {
       // Check if it's the last URL in the array and print with a newline at the end
       if (i === urls.length - 1) {
         console.log(
           chalk.magenta(
-            `Location found for ${url}: ${location.city}, ${location.region}, ${location.country}\n`
+            `Location found for ${chalk.bold(url)}: ${location.city}, ${location.region}, ${location.country}\n`
           )
         );
       } else {
         // Print the location in magenta without the newline at the end
         console.log(
           chalk.magenta(
-            `Location found for ${url}: ${location.city}, ${location.region}, ${location.country}`
+            `Location found for ${chalk.bold(url)}: ${location.city}, ${location.region}, ${location.country}`
           )
         );
       }
@@ -184,6 +188,8 @@ async function checkUrlsForLocation(urls: string[]): Promise<string[]> {
       validLocations.push(
         `${url}: ${location.city}, ${location.region}, ${location.country}`
       ); // Add to valid locations list
+    } else {
+      console.log(`Location info unavailable for ${url}\n`);
     }
   }
 
@@ -556,6 +562,11 @@ async function testHttpCalls() {
   const startTime = Date.now();
   let callsMade = 0;
   let elapsedTime = "0";
+
+  const isServerUnderMaintenance = await checkServerMaintenance(HTTP_URL);
+  if (isServerUnderMaintenance) {
+    return { time: "-1", count: -1, err: true }; // If under maintenance, return early with error state
+  }
 
   try {
     const CONNECTION_HTTP = new Connection(HTTP_URL, {
