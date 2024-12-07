@@ -95,7 +95,7 @@ async function checkServerMaintenance(url: string): Promise<boolean> {
       if (body.includes("Service under maintenance")) {
         if (ERROR_LEVEL == "stack") {
           console.log(response);
-          console.log("Server is under maintenance. HTTP Status: 503");
+          console.log(body);
         } else {
           console.log("Server is under maintenance. HTTP Status: 503");
         }
@@ -141,7 +141,7 @@ async function getLocationForIp(ip: string): Promise<any> {
 
 // Function to check multiple URLs for valid locations
 async function checkUrlsForLocation(urls: string[]): Promise<string[]> {
-  const validLocations: string[] = []; // Array to hold all URLs with valid locations
+  const resultMessages: string[] = []; // Array to hold all result messages
 
   for (let i = 0; i < urls.length; i++) {
     const url = urls[i];
@@ -152,11 +152,17 @@ async function checkUrlsForLocation(urls: string[]): Promise<string[]> {
     try {
       ip = await getIpFromUrl(url);
     } catch (error) {
-      console.log(chalk.red(`Location NOT found for ${chalk.bold(url)}: Check the endpoint`));
+      resultMessages.push(
+        chalk.yellow(`${url} -> `) +
+          chalk.red("No location found, check the endpoint")
+      );
       continue; // Continue with the next URL if IP fetch fails
     }
 
     if (ip == null) {
+      resultMessages.push(
+        chalk.yellow(`${url} -> `) + chalk.red("IP resolution failed")
+      );
       continue; // If IP is null, continue with the next URL
     }
 
@@ -164,40 +170,74 @@ async function checkUrlsForLocation(urls: string[]): Promise<string[]> {
     try {
       location = await getLocationForIp(ip);
     } catch (error) {
-      console.log(chalk.red(`Location NOT found for ${chalk.bold(url)}`));
+      resultMessages.push(
+        chalk.yellow(`${url} -> `) +
+          chalk.red("No location found, check the endpoint")
+      );
       continue; // Continue with the next URL if location fetch fails
     }
 
     if (location) {
-      // Check if it's the last URL in the array and print with a newline at the end
-      if (i === urls.length - 1) {
-        console.log(
-          chalk.magenta(
-            `Location found for ${chalk.bold(url)}: ${location.city}, ${location.region}, ${location.country}\n`
+      // Add the result message with location details (Location in green)
+      resultMessages.push(
+        chalk.yellow(`${url} -> `) +
+          chalk.green(
+            `${location.city}, ${location.region}, ${location.country}`
           )
-        );
-      } else {
-        // Print the location in magenta without the newline at the end
-        console.log(
-          chalk.magenta(
-            `Location found for ${chalk.bold(url)}: ${location.city}, ${location.region}, ${location.country}`
-          )
-        );
-      }
-
-      validLocations.push(
-        `${url}: ${location.city}, ${location.region}, ${location.country}`
-      ); // Add to valid locations list
+      );
     } else {
-      console.log(`Location info unavailable for ${url}\n`);
+      resultMessages.push(
+        chalk.yellow(`${url} -> `) + chalk.red("Location info unavailable")
+      );
     }
   }
 
-  if (validLocations.length === 0) {
-    console.log("No valid locations found for any of the URLs.\n");
+  if (resultMessages.length === 0) {
+    resultMessages.push("No valid locations found for any of the URLs.");
   }
 
-  return validLocations; // Return all URLs with valid locations
+  return resultMessages; // Return all result messages
+}
+
+async function logConfig(locations: string[]) {
+  console.log(chalk.bold.yellow(`Endpoints + Locations`));
+
+  locations.forEach((message) => {
+    console.log(message);
+  });
+
+  console.log();
+
+  console.log(chalk.bold.yellow(`Timing`));
+  console.log(
+    chalk.yellow(`Test Duration: `) + chalk.green(`${TEST_DURATION} seconds`)
+  );
+  console.log(
+    chalk.yellow(`Test Interval: `) + chalk.green(`${TEST_INTERVAL} seconds\n`)
+  );
+
+  console.log(chalk.bold.yellow(`Tests`));
+  console.log(
+    chalk.yellow(
+      `Test gRPC Stream: ${TEST_GRPC_STREAM ? chalk.green("Enabled") : chalk.red("Disabled")}`
+    )
+  );
+
+  console.log(
+    chalk.yellow(
+      `Test gRPC Calls: ${TEST_GRPC_CALLS ? chalk.green("Enabled") : chalk.red("Disabled")}`
+    )
+  );
+  console.log(
+    chalk.yellow(
+      `Test WebSocket Stream: ${TEST_WEBSOCKET_STREAM ? chalk.green("Enabled") : chalk.red("Disabled")}`
+    )
+  );
+  console.log(
+    chalk.yellow(
+      `Test HTTP Calls: ${TEST_HTTP_CALLS ? chalk.green("Enabled") : chalk.red("Disabled")}\n`
+    )
+  );
 }
 
 async function testGrpcStream(): Promise<IResults> {
@@ -635,34 +675,9 @@ async function testHttpCalls() {
 
 async function runTests() {
   const startTime = Date.now();
-  console.log(chalk.bold.yellow("\nConfiguration:\n"));
-  console.log(chalk.yellow(`gRPC URL: ${GRPC_URL}`));
-  console.log(chalk.yellow(`HTTP URL: ${HTTP_URL}`));
-  console.log(chalk.yellow(`WebSocket URL: ${WS_URL}`));
-  console.log(chalk.yellow(`Test Duration: ${TEST_DURATION} seconds`));
-  console.log(chalk.yellow(`Test Interval: ${TEST_INTERVAL} seconds\n`));
-  console.log(
-    chalk.yellow(
-      `Test gRPC Stream: ${TEST_GRPC_STREAM ? "Enabled" : "Disabled"}`
-    )
-  );
-  console.log(
-    chalk.yellow(`Test gRPC Calls: ${TEST_GRPC_CALLS ? "Enabled" : "Disabled"}`)
-  );
-  console.log(
-    chalk.yellow(
-      `Test WebSocket Stream: ${TEST_WEBSOCKET_STREAM ? "Enabled" : "Disabled"}`
-    )
-  );
-  console.log(
-    chalk.yellow(
-      `Test HTTP Calls: ${TEST_HTTP_CALLS ? "Enabled" : "Disabled"}\n`
-    )
-  );
+  const locations = await checkUrlsForLocation([GRPC_URL, HTTP_URL, WS_URL]);
 
-  console.log(chalk.bold.magenta(`Resolving Endpoint Locations\n`));
-
-  await checkUrlsForLocation([GRPC_URL, HTTP_URL, WS_URL]);
+  await logConfig(locations);
 
   const countdownInPlace = (message: string): Promise<void> => {
     return new Promise((resolve) => {
@@ -842,30 +857,7 @@ async function runTests() {
     );
   }
 
-  console.log(chalk.bold.yellow(`Configuration used in tests:\n`));
-  console.log(chalk.yellow(`gRPC URL: ${GRPC_URL}`));
-  console.log(chalk.yellow(`HTTP URL: ${HTTP_URL}`));
-  console.log(chalk.yellow(`WebSocket URL: ${WS_URL}`));
-  console.log(chalk.yellow(`Test Duration: ${TEST_DURATION} seconds`));
-  console.log(chalk.yellow(`Test Interval: ${TEST_INTERVAL} seconds\n`));
-  console.log(
-    chalk.yellow(
-      `Test gRPC Stream: ${TEST_GRPC_STREAM ? "Enabled" : "Disabled"}`
-    )
-  );
-  console.log(
-    chalk.yellow(`Test gRPC Calls: ${TEST_GRPC_CALLS ? "Enabled" : "Disabled"}`)
-  );
-  console.log(
-    chalk.yellow(
-      `Test WebSocket Stream: ${TEST_WEBSOCKET_STREAM ? "Enabled" : "Disabled"}`
-    )
-  );
-  console.log(
-    chalk.yellow(
-      `Test HTTP Calls: ${TEST_HTTP_CALLS ? "Enabled" : "Disabled"}\n`
-    )
-  );
+  await logConfig(locations);
 
   const endTime = Date.now();
   const elapsedTime = formatElapsedTime(
