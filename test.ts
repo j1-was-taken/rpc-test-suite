@@ -9,6 +9,8 @@ import chalk from "chalk";
 import readline from "readline";
 import dotenv from "dotenv";
 import fetch from "node-fetch";
+import dns from "dns";
+import { URL } from "url"; // URL module to easily handle URL parsing
 
 dotenv.config();
 
@@ -91,15 +93,105 @@ async function checkServerMaintenance(url: string): Promise<boolean> {
     if (response.status === 503) {
       const body = await response.text();
       if (body.includes("Service under maintenance")) {
-        console.log("Server is under maintenance. HTTP Status: 503");
+        if (ERROR_LEVEL == "stack") {
+          console.log(response);
+        } else {
+          console.log("Server is under maintenance. HTTP Status: 503\n");
+        }
+
         return true; // Server is under maintenance
       }
     }
   } catch (error) {
-    console.error("Error checking server maintenance:", error);
+    console.error("Error checking server maintenance:", error, "\n");
   }
 
   return false; // Server is not under maintenance
+}
+
+async function getIpFromUrl(url: string): Promise<string | null> {
+  try {
+    // Parse URL and extract hostname
+    const parsedUrl = new URL(url);
+    const host = parsedUrl.hostname;
+
+    return new Promise<string | null>((resolve, reject) => {
+      // DNS lookup to get the IP address
+      dns.lookup(host, (err, address) => {
+        if (err) {
+          console.error("Error resolving IP for URL:", err, "\n");
+          reject(err);
+        } else {
+          resolve(address);
+        }
+      });
+    });
+  } catch (error) {
+    console.error("Error parsing URL or resolving IP:", error, "\n");
+    return null;
+  }
+}
+
+async function getLocationForIp(ip: string): Promise<any> {
+  try {
+    const response = await fetch(`https://ipinfo.io/${ip}/json`);
+    const locationData: any = await response.json();
+
+    if (locationData && locationData.loc) {
+      return locationData; // Return location data if available
+    } else {
+      console.log(`No location available for IP: ${ip}\n`);
+      return null; // No location available
+    }
+  } catch (error) {
+    console.error("Error fetching location info:", error, "\n");
+    return null;
+  }
+}
+
+async function checkUrlsForLocation(urls: string[]): Promise<string[]> {
+  const validLocations: string[] = []; // Array to hold all URLs with valid locations
+
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+
+    // Resolve the IP of the URL
+    const ip = await getIpFromUrl(url);
+    if (!ip) {
+      console.log(`Unable to resolve IP for: ${url}\n`);
+      continue;
+    }
+
+    // Fetch location for the resolved IP
+    const location = await getLocationForIp(ip);
+    if (location) {
+      // Check if it's the last URL in the array and print with a newline at the end
+      if (i === urls.length - 1) {
+        console.log(
+          chalk.magenta(
+            `Location found for ${url}: ${location.city}, ${location.region}, ${location.country}\n`
+          )
+        );
+      } else {
+        // Print the location in magenta without the newline at the end
+        console.log(
+          chalk.magenta(
+            `Location found for ${url}: ${location.city}, ${location.region}, ${location.country}`
+          )
+        );
+      }
+
+      validLocations.push(
+        `${url}: ${location.city}, ${location.region}, ${location.country}`
+      ); // Add to valid locations list
+    }
+  }
+
+  if (validLocations.length === 0) {
+    console.log("No valid locations found for any of the URLs.\n");
+  }
+
+  return validLocations; // Return all URLs with valid locations
 }
 
 async function testGrpcStream(): Promise<IResults> {
@@ -556,6 +648,10 @@ async function runTests() {
       `Test HTTP Calls: ${TEST_HTTP_CALLS ? "Enabled" : "Disabled"}\n`
     )
   );
+
+  console.log(chalk.bold.magenta(`Resolving Endpoint Locations\n`));
+
+  await checkUrlsForLocation([GRPC_URL, HTTP_URL, WS_URL]);
 
   const countdownInPlace = (message: string): Promise<void> => {
     return new Promise((resolve) => {
