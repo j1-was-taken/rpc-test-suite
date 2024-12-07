@@ -9,6 +9,7 @@ import chalk from "chalk";
 import readline from "readline";
 import dotenv from "dotenv";
 import fetch from "node-fetch";
+import dnsPromise from "dns/promises";
 import dns from "dns";
 import { URL } from "url"; // URL module to easily handle URL parsing
 
@@ -115,7 +116,7 @@ async function getIpFromUrl(url: string): Promise<string | null> {
 
   return new Promise<string | null>((resolve, reject) => {
     // DNS lookup to get the IP address
-    dns.lookup(host, (err, address) => {
+    dns.lookup(host, (err: any, address: any) => {
       if (err) {
         reject(err); // Reject with error
       } else {
@@ -127,8 +128,21 @@ async function getIpFromUrl(url: string): Promise<string | null> {
 
 // Function to fetch location info from IP
 async function getLocationForIp(ip: string): Promise<any> {
+  // Fetch location data from ipinfo.io
   const response = await fetch(`https://ipinfo.io/${ip}/json`);
   const locationData: any = await response.json();
+
+  // Attempt to fetch the hostname using reverse DNS if not available
+  if (!locationData.hostname) {
+    try {
+      const hostnames = await dnsPromise.reverse(ip);
+      locationData.hostname = hostnames[0] || null; // Add hostname if found
+    } catch (error) {
+      locationData.hostname = null; // Handle reverse DNS failure gracefully
+    }
+  }
+
+  console.log(locationData);
 
   if (locationData && locationData.loc) {
     return locationData; // Return location data if available
@@ -180,7 +194,7 @@ async function checkUrlsForLocation(urls: string[]): Promise<string[]> {
       resultMessages.push(
         chalk.yellow(`${url} -> `) +
           chalk.green(
-            `${location.city}, ${location.region}, ${location.country} ${chalk.yellow("->")} ${location.org}`
+            `${location.city}, ${location.region}, ${location.country} ${chalk.yellow("->")} ${location.org} ${chalk.yellow("->")} ${location.hostname ? location.hostname : chalk.red("Unknown")}`
           )
       );
     } else {
@@ -200,7 +214,9 @@ async function checkUrlsForLocation(urls: string[]): Promise<string[]> {
 async function logConfig(locations: string[]) {
   console.log(chalk.bold.yellow(`Setup`));
   console.log(chalk.bold.yellow());
-  console.log(chalk.bold.yellow(`Endpoint -> Location -> Organization`));
+  console.log(
+    chalk.bold.yellow(`Endpoint -> Location -> Organization -> Host`)
+  );
 
   locations.forEach((message) => {
     console.log(message);
