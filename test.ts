@@ -23,6 +23,8 @@ const TEST_GRPC_CALLS = Number(process.env.TEST_GRPC_CALLS);
 const TEST_WEBSOCKET_STREAM = Number(process.env.TEST_WEBSOCKET_STREAM);
 const TEST_HTTP_CALLS = Number(process.env.TEST_HTTP_CALLS);
 
+const ERROR_LEVEL = process.env.ERROR_LEVEL;
+
 const checkEnvVariables = () => {
   const missingVars = [];
   if (!TEST_DURATION) missingVars.push("TEST_DURATION");
@@ -151,7 +153,12 @@ async function testGrpcStream(): Promise<IResults> {
 
       // Handle stream error
       stream.on("error", (err: any) => {
-        console.log(`Stream ERROR: ${err.message}`);
+        if (ERROR_LEVEL == "stack") {
+          console.log(`gRPC Stream ERROR message: ${err.stack}`);
+        } else {
+          console.log(`gRPC Stream ERROR message: ${err.message.replace("\n", "")}`);
+        }
+
         clearInterval(pingInterval);
         stream.removeAllListeners();
         if (dataDetectedCount > 0) {
@@ -215,7 +222,12 @@ async function testGrpcStream(): Promise<IResults> {
         resolve({ time: elapsedTime, count: dataDetectedCount, err: false });
       }, TEST_DURATION * 1000);
     } catch (e: any) {
-      console.log(`ERROR: ${e.message}`);
+      if (ERROR_LEVEL == "stack") {
+        console.log(`[TOP] gRPC Stream ERROR message: ${e.stack}`);
+      } else {
+        console.log(`[TOP] gRPC Stream ERROR message: ${e.message.replace("\n", "")}`);
+      }
+
       if (dataDetectedCount > 0) {
         resolve({ time: elapsedTime, count: dataDetectedCount, err: true });
       } else {
@@ -260,8 +272,15 @@ async function testGrpcCalls() {
         console.log(
           `${new Date(ts).toUTCString()}: gRPC calls made: ${callsMade}\n`
         );
-      } catch (error) {
-        console.error(`HTTP Error: ${error}`);
+      } catch (error: any) {
+        if (ERROR_LEVEL == "stack") {
+          console.log(`gRPC Calls ERROR message: ${error.stack}`);
+        } else {
+          console.log(
+            `gRPC Calls ERROR message: ${error.message.replace("\n", "")}`
+          );
+        }
+        
         if (callsMade > 0) {
           return { time: elapsedTime, count: callsMade, err: true };
         } else {
@@ -270,7 +289,13 @@ async function testGrpcCalls() {
       }
     }
   } catch (e: any) {
-    console.log(`ERROR: ${e}`);
+    if (ERROR_LEVEL == "stack") {
+      console.log(`[TOP] gRPC Calls ERROR message: ${e.stack}`);
+    } else {
+      console.log(
+        `[TOP] gRPC Calls ERROR message: ${e.message.replace("\n", "")}`
+      );
+    }
     if (callsMade > 0) {
       return { time: elapsedTime, count: callsMade, err: true };
     } else {
@@ -354,7 +379,13 @@ async function testWebSocketStream(): Promise<IResults> {
       });
 
       ws.on("error", (error) => {
-        console.error("WebSocket error:", error.message);
+        if (ERROR_LEVEL == "stack") {
+          console.log(`Websocket Stream ERROR message: ${error.stack}`);
+        } else {
+          console.log(
+            `Websocket Stream ERROR message: ${error.message.replace("\n", "")}`
+          );
+        }
         ws.close();
         ws.removeAllListeners();
         resolve({ time: "-1", count: -1, err: true }); // Resolve with error result
@@ -372,7 +403,14 @@ async function testWebSocketStream(): Promise<IResults> {
         resolve({ time: elapsedTime, count: dataDetectedCount, err: false });
       }, TEST_DURATION * 1000);
     } catch (e: any) {
-      console.log(`ERROR: ${e.message}`);
+      if (ERROR_LEVEL == "stack") {
+        console.log(`[TOP] Websocket Stream ERROR message: ${e.stack}`);
+      } else {
+        console.log(
+          `[TOP] Websocket Stream ERROR message: ${e.message.replace("\n", "")}`
+        );
+      }
+
       if (dataDetectedCount > 0) {
         resolve({ time: elapsedTime, count: dataDetectedCount, err: false });
       } else {
@@ -425,8 +463,12 @@ async function testHttpCalls() {
         console.log(
           `${new Date(ts).toUTCString()}: HTTP calls made: ${callsMade}\n`
         );
-      } catch (error) {
-        console.error(`HTTP Error: ${error}`);
+      } catch (error: any) {
+        if (ERROR_LEVEL == "stack") {
+          console.log(`HTTP ERROR message: ${error.stack}`);
+        } else {
+          console.log(`HTTP ERROR message: ${error.message.replace("\n", "")}`);
+        }
         if (callsMade > 0) {
           return { time: elapsedTime, count: callsMade, err: true };
         } else {
@@ -435,7 +477,11 @@ async function testHttpCalls() {
       }
     }
   } catch (e: any) {
-    console.log(`ERROR: ${e}`);
+    if (ERROR_LEVEL == "stack") {
+      console.log(`[TOP] HTTP ERROR message: ${e.stack}`);
+    } else {
+      console.log(`[TOP] HTTP ERROR message: ${e.message.replace("\n", "")}`);
+    }
     if (callsMade > 0) {
       return { time: elapsedTime, count: callsMade, err: true };
     } else {
