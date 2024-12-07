@@ -79,10 +79,10 @@ To run the tests you need node.js, npm, and tsx
 
 1. Rename the .env_template to .env and fill out the information
    ```sh
-   GRPC_URL="https://example_endpoint:example_port"
+   GRPC_URL="https://example.endpoint:example_port"
    GRPC_API_KEY="" # (fill in if you have one. if you dont have one, leave blank.)
-   HTTP_URL="http://example_endpoint"
-   WS_URL="ws://example_endpoint"
+   HTTP_URL="http://example.endpoint"
+   WS_URL="ws://example.endpoint"
    TEST_DURATION=60 # (seconds) how long do you want to run each test?
    TEST_INTERVAL=5 # (seconds) wait time between each test 
 
