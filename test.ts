@@ -200,6 +200,7 @@ async function checkUrlsForLocation(urls: string[]): Promise<string[]> {
 }
 
 async function logConfig(locations: string[]) {
+  console.log(chalk.bold.yellow(`Setup\n`));
   console.log(chalk.bold.yellow(`Endpoints + Locations`));
 
   locations.forEach((message) => {
@@ -862,7 +863,7 @@ async function runTests() {
 
   const endTime = Date.now();
   const elapsedTime = formatElapsedTime(
-    Math.floor((endTime - startTime) / 1000)
+    Math.floor((endTime - startTime) / 1000)  
   );
   console.log(chalk.bold(`Done in ${elapsedTime}`));
 }
