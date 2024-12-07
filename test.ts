@@ -387,8 +387,6 @@ async function testHttpCalls() {
   let callsMade = 0;
   let elapsedTime = "0";
 
-  return { time: "13", count: 2, err: true };
-
   try {
     const CONNECTION_HTTP = new Connection(HTTP_URL, {
       commitment: COMMITMENT_LEVEL,
