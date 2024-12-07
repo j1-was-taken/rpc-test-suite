@@ -49,7 +49,7 @@ To run the tests you need node.js, npm, and tsx
 
 - node.js: https://nodejs.org/en/download/package-manager
 - npm: should come with nodejs
-- tsx
+- tsx: installed using below command
 
 ```sh
    npm install -g tsx
