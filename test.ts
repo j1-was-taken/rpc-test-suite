@@ -46,8 +46,10 @@ checkEnvVariables();
 
 const COMMITMENT_LEVEL = "confirmed";
 const X_TOKEN = GRPC_API_KEY;
-const PING_INTERVAL_MS = 30_000; // 30s
-const COPY_ACCOUNTS = ["SysvarC1ock11111111111111111111111111111111"];
+const PING_INTERVAL_MS = 30000; // 30s
+const COPY_ACCOUNTS = ["675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"];
+
+let shouldPing = true;
 
 export interface IResults {
   time: string;
@@ -141,7 +143,7 @@ async function getLocationForIp(ip: string): Promise<any> {
       locationData.hostname = null; // Handle reverse DNS failure gracefully
     }
   }
-  
+
   if (locationData && locationData.loc) {
     return locationData; // Return location data if available
   } else {
@@ -192,7 +194,11 @@ async function checkUrlsForLocation(urls: string[]): Promise<string[]> {
       resultMessages.push(
         chalk.yellow(`${url} -> `) +
           chalk.green(
-            `${location.city}, ${location.region}, ${location.country} ${chalk.yellow("->")} ${location.org} ${chalk.yellow("->")} ${location.hostname ? location.hostname : chalk.red("Unknown")}`
+            `${location.city}, ${location.region}, ${
+              location.country
+            } ${chalk.yellow("->")} ${location.org} ${chalk.yellow("->")} ${
+              location.hostname ? location.hostname : chalk.red("Unknown")
+            }`
           )
       );
     } else {
@@ -233,25 +239,48 @@ async function logConfig(locations: string[]) {
   console.log(chalk.bold.yellow(`Tests`));
   console.log(
     chalk.yellow(
-      `Test gRPC Stream: ${TEST_GRPC_STREAM ? chalk.green("Enabled") : chalk.red("Disabled")}`
+      `Test gRPC Stream: ${
+        TEST_GRPC_STREAM ? chalk.green("Enabled") : chalk.red("Disabled")
+      }`
     )
   );
 
   console.log(
     chalk.yellow(
-      `Test gRPC Calls: ${TEST_GRPC_CALLS ? chalk.green("Enabled") : chalk.red("Disabled")}`
+      `Test gRPC Calls: ${
+        TEST_GRPC_CALLS ? chalk.green("Enabled") : chalk.red("Disabled")
+      }`
     )
   );
   console.log(
     chalk.yellow(
-      `Test WebSocket Stream: ${TEST_WEBSOCKET_STREAM ? chalk.green("Enabled") : chalk.red("Disabled")}`
+      `Test WebSocket Stream: ${
+        TEST_WEBSOCKET_STREAM ? chalk.green("Enabled") : chalk.red("Disabled")
+      }`
     )
   );
   console.log(
     chalk.yellow(
-      `Test HTTP Calls: ${TEST_HTTP_CALLS ? chalk.green("Enabled") : chalk.red("Disabled")}\n`
+      `Test HTTP Calls: ${
+        TEST_HTTP_CALLS ? chalk.green("Enabled") : chalk.red("Disabled")
+      }\n`
     )
   );
+}
+
+async function jankyInterval(
+  callback: () => Promise<void>,
+  interval: number
+): Promise<void> {
+  while (shouldPing) {
+    try {
+      await callback();
+    } catch (err) {
+      console.error("Error in jankyInterval:", err);
+      throw err; // Optionally re-throw to stop execution
+    }
+    await new Promise((resolve) => setTimeout(resolve, interval)); // Delay for the interval
+  }
 }
 
 async function testGrpcStream(): Promise<IResults> {
@@ -265,37 +294,45 @@ async function testGrpcStream(): Promise<IResults> {
 
   return new Promise<IResults>(async (resolve) => {
     try {
-      const client = new Client(GRPC_URL, X_TOKEN, {});
+      const client = new Client(GRPC_URL, X_TOKEN, {
+        "grpc.max_receive_message_length": 1024 * 1024 * 1024, // 64MiB
+      });
+
       const stream = await client.subscribe();
+
       const startTime = Date.now();
 
-      // Ping request object
-      const pingRequest: SubscribeRequest = {
-        ping: { id: 1 },
-        accounts: {},
-        accountsDataSlice: [],
-        transactions: {},
-        transactionsStatus: {},
-        blocks: {},
-        blocksMeta: {},
-        entry: {},
-        slots: {},
-      };
+      stream.on("error", (err: any) => {
+        if (ERROR_LEVEL == "stack") {
+          console.log(`gRPC Stream ERROR message: ${err.stack}`);
+        } else {
+          console.log(
+            `gRPC Stream ERROR message: ${err.message.replace("\n", "")}`
+          );
+        }
 
-      // Setup ping interval
-      const pingInterval = setInterval(async () => {
-        await new Promise<void>((resolve, reject) => {
-          stream.write(pingRequest, (err: any) => {
-            if (err === null || err === undefined) {
-              resolve();
-            } else {
-              reject(err);
-            }
-          });
+        shouldPing = false;
+        stream.removeAllListeners(); // Remove all listeners
+
+        // Add a one-time error listener to handle any errors during cleanup
+        stream.once("error", (error) => {
+          console.log("Stream encountered an error during cleanup:", error);
+          resolve({ time: elapsedTime, count: dataDetectedCount, err: false });
+          if (dataDetectedCount > 0) {
+            resolve({ time: elapsedTime, count: dataDetectedCount, err: true });
+          } else {
+            resolve({ time: "-1", count: -1, err: true });
+          }
         });
-      }, PING_INTERVAL_MS);
 
-      // Handle stream data
+        resolve({ time: elapsedTime, count: dataDetectedCount, err: false });
+        if (dataDetectedCount > 0) {
+          resolve({ time: elapsedTime, count: dataDetectedCount, err: true });
+        } else {
+          resolve({ time: "-1", count: -1, err: true });
+        }
+      });
+
       stream.on("data", (data) => {
         const ts = Date.now();
         const elapsed = Math.floor((ts - startTime) / 1000);
@@ -312,7 +349,9 @@ async function testGrpcStream(): Promise<IResults> {
             if (COPY_ACCOUNTS.includes(account)) {
               dataDetectedCount += 1;
               console.log(
-                `\n${new Date(ts).toUTCString()}: Matching account detected from gRPC connection!`
+                `\n${new Date(
+                  ts
+                ).toUTCString()}: Matching account detected from gRPC connection!`
               );
               matchingAccount = account;
               console.log(
@@ -320,10 +359,14 @@ async function testGrpcStream(): Promise<IResults> {
               );
               console.log(`${new Date(ts).toUTCString()}: Signature: ${txSig}`);
               console.log(
-                `${new Date(ts).toUTCString()}: gRPC stream active for: ${elapsedTime}`
+                `${new Date(
+                  ts
+                ).toUTCString()}: gRPC stream active for: ${elapsedTime}`
               );
               console.log(
-                `${new Date(ts).toUTCString()}: gRPC data detected count: ${dataDetectedCount}\n`
+                `${new Date(
+                  ts
+                ).toUTCString()}: gRPC data detected count: ${dataDetectedCount}\n`
               );
             }
           });
@@ -334,26 +377,7 @@ async function testGrpcStream(): Promise<IResults> {
         }
       });
 
-      // Handle stream error
-      stream.on("error", (err: any) => {
-        if (ERROR_LEVEL == "stack") {
-          console.log(`gRPC Stream ERROR message: ${err.stack}`);
-        } else {
-          console.log(
-            `gRPC Stream ERROR message: ${err.message.replace("\n", "")}`
-          );
-        }
-
-        clearInterval(pingInterval);
-        stream.removeAllListeners();
-        if (dataDetectedCount > 0) {
-          resolve({ time: elapsedTime, count: dataDetectedCount, err: true });
-        } else {
-          resolve({ time: "-1", count: -1, err: true });
-        }
-      });
-
-      // Initial account request
+      // Example subscribe request.
       const accountRequest: SubscribeRequest = {
         slots: {},
         commitment: CommitmentLevel.CONFIRMED,
@@ -375,35 +399,70 @@ async function testGrpcStream(): Promise<IResults> {
         entry: {},
       };
 
-      stream.write(accountRequest, (err: any) => {
-        if (err) {
-          throw err;
-        }
-      });
+      // Ping request object
+      const pingRequest: SubscribeRequest = {
+        ping: { id: 1 },
+        accounts: {},
+        accountsDataSlice: [],
+        transactions: {},
+        transactionsStatus: {},
+        blocks: {},
+        blocksMeta: {},
+        entry: {},
+        slots: {},
+      };
 
-      // Handle ping interval write
-      new Promise<void>((resolve, reject) => {
-        stream.write(pingRequest, (err: any) => {
+      jankyInterval(
+        async () => {
+          if (shouldPing) {
+            // Simulate your async task (e.g., gRPC ping request)
+            try {
+              await new Promise<void>((resolve, reject) => {
+                stream.write(pingRequest, (err: any) => {
+                  if (err === null || err === undefined) {
+                    resolve();
+                  } else {
+                    reject(err);
+                  }
+                });
+              });
+            } catch (err: any) {
+              console.error("Failed to write to the stream:", err);
+              resolve({
+                time: elapsedTime,
+                count: dataDetectedCount,
+                err: false,
+              });
+            }
+          }
+        },
+        PING_INTERVAL_MS // Interval in ms
+      ).catch((err) => console.error("Interval stopped due to error:", err));
+
+      // Send subscribe request
+      await new Promise<void>((resolve, reject) => {
+        stream.write(accountRequest, (err: any) => {
           if (err === null || err === undefined) {
             resolve();
           } else {
             reject(err);
           }
         });
+      }).catch((reason) => {
+        console.error(reason);
+        throw reason;
       });
 
       setTimeout(() => {
-        clearInterval(pingInterval);
-        stream
-          .removeAllListeners()
-          .once("error", () => {
-            resolve({
-              time: elapsedTime,
-              count: dataDetectedCount,
-              err: false,
-            });
-          })
-          .cancel();
+        shouldPing = false;
+        stream.removeAllListeners(); // Remove all listeners
+
+        // Add a one-time error listener to handle any errors during cleanup
+        stream.once("error", (error) => {
+          console.log("Stream encountered an error during cleanup:", error);
+          resolve({ time: elapsedTime, count: dataDetectedCount, err: false });
+        });
+
         resolve({ time: elapsedTime, count: dataDetectedCount, err: false });
       }, TEST_DURATION * 1000);
     } catch (e: any) {
@@ -422,6 +481,243 @@ async function testGrpcStream(): Promise<IResults> {
       }
     }
   });
+
+  // return new Promise<IResults>(async (resolve) => {
+  //   try {
+  //     const client = new Client(GRPC_URL, X_TOKEN, {
+  //       "grpc.max_receive_message_length": 1024 * 1024 * 1024, // 64MiB
+  //     });
+  //     const stream = await client.subscribe();
+  //     const startTime = Date.now();
+
+  //     // Ping request object
+  //     const pingRequest: SubscribeRequest = {
+  //       ping: { id: 1 },
+  //       accounts: {},
+  //       accountsDataSlice: [],
+  //       transactions: {},
+  //       transactionsStatus: {},
+  //       blocks: {},
+  //       blocksMeta: {},
+  //       entry: {},
+  //       slots: {},
+  //     };
+
+  //     // Setup ping interval
+  //     const pingInterval = setInterval(async () => {
+  //       await new Promise<void>((resolve, reject) => {
+  //         stream.write(pingRequest, (err: any) => {
+  //           if (err === null || err === undefined) {
+  //             resolve();
+  //           } else {
+  //             reject(err);
+  //           }
+  //         });
+  //       });
+  //     }, PING_INTERVAL_MS);
+
+  //     // Handle stream data
+  //     // stream.on("data", (data) => {
+  //     //   const ts = Date.now();
+  //     //   const elapsed = Math.floor((ts - startTime) / 1000);
+  //     //   elapsedTime = formatElapsedTime(elapsed);
+
+  //     //   if (data.filters[0] === "txReq") {
+  //     //     const accKeysBytes =
+  //     //       data.transaction.transaction.transaction.message.accountKeys;
+  //     //     const accountKeys = accKeysBytes.map((key: any) => bs58.encode(key));
+  //     //     const txSig = bs58.encode(data.transaction.transaction.signature);
+  //     //     let matchingAccount = "";
+
+  //     //     accountKeys.forEach((account: any) => {
+  //     //       if (COPY_ACCOUNTS.includes(account)) {
+  //     //         dataDetectedCount += 1;
+  //     //         console.log(
+  //     //           `\n${new Date(
+  //     //             ts
+  //     //           ).toUTCString()}: Matching account detected from gRPC connection!`
+  //     //         );
+  //     //         matchingAccount = account;
+  //     //         console.log(
+  //     //           `${new Date(ts).toUTCString()}: Account: ${matchingAccount}`
+  //     //         );
+  //     //         console.log(`${new Date(ts).toUTCString()}: Signature: ${txSig}`);
+  //     //         console.log(
+  //     //           `${new Date(
+  //     //             ts
+  //     //           ).toUTCString()}: gRPC stream active for: ${elapsedTime}`
+  //     //         );
+  //     //         console.log(
+  //     //           `${new Date(
+  //     //             ts
+  //     //           ).toUTCString()}: gRPC data detected count: ${dataDetectedCount}\n`
+  //     //         );
+  //     //       }
+  //     //     });
+  //     //   } else if (data.pong) {
+  //     //     console.log(
+  //     //       `${new Date(ts).toUTCString()}: Processed ping response!`
+  //     //     );
+  //     //   }
+  //     // });
+
+  //     stream.on("data", (data) => {
+  //       let ts = new Date();
+  //       if (data) {
+  //         if (data.transaction) {
+  //           const tx = data.transaction;
+  //           // Convert the entire transaction object
+  //           const convertedTx = convertBuffers(tx);
+  //           // If you want to see the entire converted transaction:
+  //           console.log(
+  //             `${ts.toUTCString()}: Received update: ${JSON.stringify(
+  //               convertedTx
+  //             )}\n\n`
+  //           );
+  //         } else {
+  //           console.log(`${ts.toUTCString()}: Received update: ${data}\n\n`);
+  //         }
+  //         stream.end();
+  //       } else if (data.pong) {
+  //         console.log(`${ts.toUTCString()}: Processed ping response!`);
+  //       }
+  //     });
+
+  //     // Handle stream error
+  //     stream.on("error", (err: any) => {
+  //       if (ERROR_LEVEL == "stack") {
+  //         console.log(`gRPC Stream ERROR message: ${err.stack}`);
+  //       } else {
+  //         console.log(
+  //           `gRPC Stream ERROR message: ${err.message.replace("\n", "")}`
+  //         );
+  //       }
+
+  //       clearInterval(pingInterval);
+  //       stream.removeAllListeners();
+  //       if (dataDetectedCount > 0) {
+  //         resolve({ time: elapsedTime, count: dataDetectedCount, err: true });
+  //       } else {
+  //         resolve({ time: "-1", count: -1, err: true });
+  //       }
+  //     });
+
+  //     // // Initial account request
+  //     // const accountRequest: SubscribeRequest = {
+  //     //   slots: {},
+  //     //   commitment: CommitmentLevel.CONFIRMED,
+  //     //   accounts: {},
+  //     //   accountsDataSlice: [],
+  //     //   transactions: {
+  //     //     txReq: {
+  //     //       vote: undefined,
+  //     //       failed: undefined,
+  //     //       signature: undefined,
+  //     //       accountInclude: COPY_ACCOUNTS,
+  //     //       accountExclude: {},
+  //     //       accountRequired: {},
+  //     //     },
+  //     //   },
+  //     //   transactionsStatus: {},
+  //     //   blocks: {},
+  //     //   blocksMeta: {},
+  //     //   entry: {},
+  //     // };
+
+  //     // // stream.write(accountRequest, (err: any) => {
+  //     // //   if (err) {
+  //     // //     throw err;
+  //     // //   }
+  //     // // });
+
+  //     // new Promise<void>((resolve, reject) => {
+  //     //   stream.write(accountRequest, (err: any) => {
+  //     //     if (err === null || err === undefined) {
+  //     //       resolve();
+  //     //     } else {
+  //     //       reject(err);
+  //     //     }
+  //     //   });
+  //     // });
+
+  //     // Example subscribe request.
+  //     const request: SubscribeRequest = {
+  //       commitment: CommitmentLevel.PROCESSED,
+  //       accountsDataSlice: [],
+  //       ping: undefined,
+  //       transactions: {
+  //         client: {
+  //           vote: false,
+  //           failed: false,
+  //           accountInclude: ["675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"],
+  //           accountExclude: [],
+  //           accountRequired: [],
+  //         },
+  //       },
+  //       // unused arguments
+  //       accounts: {},
+  //       slots: {},
+  //       transactionsStatus: {},
+  //       entry: {},
+  //       blocks: {},
+  //       blocksMeta: {},
+  //     };
+
+  //     // Send subscribe request
+  //     await new Promise<void>((resolve, reject) => {
+  //       stream.write(request, (err: any) => {
+  //         if (err === null || err === undefined) {
+  //           resolve();
+  //         } else {
+  //           reject(err);
+  //         }
+  //       });
+  //     }).catch((reason) => {
+  //       console.error(reason);
+  //       throw reason;
+  //     });
+
+  //     // Handle ping interval write
+  //     new Promise<void>((resolve, reject) => {
+  //       stream.write(pingRequest, (err: any) => {
+  //         if (err === null || err === undefined) {
+  //           resolve();
+  //         } else {
+  //           reject(err);
+  //         }
+  //       });
+  //     });
+
+  //     setTimeout(() => {
+  //       clearInterval(pingInterval);
+  //       stream
+  //         .removeAllListeners()
+  //         .once("error", () => {
+  //           resolve({
+  //             time: elapsedTime,
+  //             count: dataDetectedCount,
+  //             err: false,
+  //           });
+  //         })
+  //         .cancel();
+  //       resolve({ time: elapsedTime, count: dataDetectedCount, err: false });
+  //     }, TEST_DURATION * 1000);
+  //   } catch (e: any) {
+  //     if (ERROR_LEVEL == "stack") {
+  //       console.log(`[TOP] gRPC Stream ERROR message: ${e.stack}`);
+  //     } else {
+  //       console.log(
+  //         `[TOP] gRPC Stream ERROR message: ${e.message.replace("\n", "")}`
+  //       );
+  //     }
+
+  //     if (dataDetectedCount > 0) {
+  //       resolve({ time: elapsedTime, count: dataDetectedCount, err: true });
+  //     } else {
+  //       resolve({ time: "-1", count: -1, err: true });
+  //     }
+  //   }
+  // });
 }
 
 async function testGrpcCalls() {
@@ -453,10 +749,14 @@ async function testGrpcCalls() {
         callsMade += 1;
 
         console.log(
-          `\n${new Date(ts).toUTCString()}: Latest blockhash received from gRPC call!`
+          `\n${new Date(
+            ts
+          ).toUTCString()}: Latest blockhash received from gRPC call!`
         );
         console.log(
-          `${new Date(ts).toUTCString()}: Latest blockhash from chain: ${latestBlockhash.blockhash}`
+          `${new Date(ts).toUTCString()}: Latest blockhash from chain: ${
+            latestBlockhash.blockhash
+          }`
         );
         console.log(
           `${new Date(ts).toUTCString()}: gRPC calls active for: ${elapsedTime}`
@@ -539,17 +839,23 @@ async function testWebSocketStream(): Promise<IResults> {
             const txSig = responseDict.params.result.value.signature;
             dataDetectedCount += 1;
             console.log(
-              `${new Date(ts).toUTCString()}: Matching account detected from WEBSOCKET connection!`
+              `${new Date(
+                ts
+              ).toUTCString()}: Matching account detected from WEBSOCKET connection!`
             );
             console.log(
               `${new Date(ts).toUTCString()}: Account: ${COPY_ACCOUNTS[0]}`
             );
             console.log(`${new Date(ts).toUTCString()}: Signature: ${txSig}`);
             console.log(
-              `${new Date(ts).toUTCString()}: WebSocket stream active for: ${elapsedTime}`
+              `${new Date(
+                ts
+              ).toUTCString()}: WebSocket stream active for: ${elapsedTime}`
             );
             console.log(
-              `${new Date(ts).toUTCString()}: WebSocket data detected count: ${dataDetectedCount}\n`
+              `${new Date(
+                ts
+              ).toUTCString()}: WebSocket data detected count: ${dataDetectedCount}\n`
             );
           } else {
             if (responseDict.params?.result?.value?.err) {
@@ -646,13 +952,17 @@ async function testHttpCalls() {
         callsMade += 1;
 
         console.log(
-          `\n${new Date(ts).toUTCString()}: Signatures for first copy account received from HTTP call!`
+          `\n${new Date(
+            ts
+          ).toUTCString()}: Signatures for first copy account received from HTTP call!`
         );
         console.log(
           `${new Date(ts).toUTCString()}: Account: ${COPY_ACCOUNTS[0]}`
         );
         console.log(
-          `${new Date(ts).toUTCString()}: Latest Signature from Account: ${latestAccountTx}`
+          `${new Date(
+            ts
+          ).toUTCString()}: Latest Signature from Account: ${latestAccountTx}`
         );
         console.log(
           `${new Date(ts).toUTCString()}: HTTP calls active for: ${elapsedTime}`
@@ -785,8 +1095,8 @@ async function runTests() {
         !gRpcStreamResults.err && gRpcStreamResults.count > 0
           ? chalk.green(gRpcStreamResults.time)
           : gRpcStreamResults.err && gRpcStreamResults.count > 0
-            ? chalk.hex("#FFA500")(`${gRpcStreamResults.time} - Error occurred`)
-            : chalk.red("0 - Error occurred")
+          ? chalk.hex("#FFA500")(`${gRpcStreamResults.time} - Error occurred`)
+          : chalk.red("0 - Error occurred")
       }`
     );
     console.log(
@@ -794,10 +1104,8 @@ async function runTests() {
         !gRpcStreamResults.err && gRpcStreamResults.count > 0
           ? chalk.green(gRpcStreamResults.count)
           : gRpcStreamResults.err && gRpcStreamResults.count > 0
-            ? chalk.hex("#FFA500")(
-                `${gRpcStreamResults.count} - Error occurred`
-              )
-            : chalk.red("0 - Error occurred")
+          ? chalk.hex("#FFA500")(`${gRpcStreamResults.count} - Error occurred`)
+          : chalk.red("0 - Error occurred")
       }\n`
     );
   }
@@ -809,8 +1117,8 @@ async function runTests() {
         !gRpcCallResults.err && gRpcCallResults.count > 0
           ? chalk.green(gRpcCallResults.time)
           : gRpcCallResults.err && gRpcCallResults.count > 0
-            ? chalk.hex("#FFA500")(`${gRpcCallResults.time} - Error occurred`)
-            : chalk.red("0 - Error occurred")
+          ? chalk.hex("#FFA500")(`${gRpcCallResults.time} - Error occurred`)
+          : chalk.red("0 - Error occurred")
       }`
     );
     console.log(
@@ -818,8 +1126,8 @@ async function runTests() {
         !gRpcCallResults.err && gRpcCallResults.count > 0
           ? chalk.green(gRpcCallResults.count)
           : gRpcCallResults.err && gRpcCallResults.count > 0
-            ? chalk.hex("#FFA500")(`${gRpcCallResults.count} - Error occurred`)
-            : chalk.red("0 - Error occurred")
+          ? chalk.hex("#FFA500")(`${gRpcCallResults.count} - Error occurred`)
+          : chalk.red("0 - Error occurred")
       }\n`
     );
   }
@@ -831,10 +1139,10 @@ async function runTests() {
         !websocketStreamResults.err && websocketStreamResults.count > 0
           ? chalk.green(websocketStreamResults.time)
           : websocketStreamResults.err && websocketStreamResults.count > 0
-            ? chalk.hex("#FFA500")(
-                `${websocketStreamResults.time} - Error occurred`
-              )
-            : chalk.red("0 - Error occurred")
+          ? chalk.hex("#FFA500")(
+              `${websocketStreamResults.time} - Error occurred`
+            )
+          : chalk.red("0 - Error occurred")
       }`
     );
     console.log(
@@ -842,10 +1150,10 @@ async function runTests() {
         !websocketStreamResults.err && websocketStreamResults.count > 0
           ? chalk.green(websocketStreamResults.count)
           : websocketStreamResults.err && websocketStreamResults.count > 0
-            ? chalk.hex("#FFA500")(
-                `${websocketStreamResults.count} - Error occurred`
-              )
-            : chalk.red("0 - Error occurred")
+          ? chalk.hex("#FFA500")(
+              `${websocketStreamResults.count} - Error occurred`
+            )
+          : chalk.red("0 - Error occurred")
       }\n`
     );
   }
@@ -857,8 +1165,8 @@ async function runTests() {
         !httpCallResults.err && httpCallResults.count > 0
           ? chalk.green(httpCallResults.time)
           : httpCallResults.err && httpCallResults.count > 0
-            ? chalk.hex("#FFA500")(`${httpCallResults.time} - Error occurred`)
-            : chalk.red("0 - Error occurred")
+          ? chalk.hex("#FFA500")(`${httpCallResults.time} - Error occurred`)
+          : chalk.red("0 - Error occurred")
       }`
     );
     console.log(
@@ -866,8 +1174,8 @@ async function runTests() {
         !httpCallResults.err && httpCallResults.count > 0
           ? chalk.green(httpCallResults.count)
           : httpCallResults.err && httpCallResults.count > 0
-            ? chalk.hex("#FFA500")(`${httpCallResults.count} - Error occurred`)
-            : chalk.red("0 - Error occurred")
+          ? chalk.hex("#FFA500")(`${httpCallResults.count} - Error occurred`)
+          : chalk.red("0 - Error occurred")
       }\n`
     );
   }
