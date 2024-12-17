@@ -295,7 +295,7 @@ async function testGrpcStream(): Promise<IResults> {
   return new Promise<IResults>(async (resolve) => {
     try {
       const client = new Client(GRPC_URL, X_TOKEN, {
-        "grpc.max_receive_message_length": 1024 * 1024 * 1024, // 64MiB
+        "grpc.max_receive_message_length": 1024 * 1024 * 1024
       });
 
       const stream = await client.subscribe();
