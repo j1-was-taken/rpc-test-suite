@@ -30,14 +30,33 @@ const TEST_HTTP_CALLS = Number(process.env.TEST_HTTP_CALLS);
 const ERROR_LEVEL = process.env.ERROR_LEVEL;
 
 const checkEnvVariables = () => {
-  const missingVars = [];
-  if (!TEST_DURATION) missingVars.push("TEST_DURATION");
-  if (!TEST_INTERVAL) missingVars.push("TEST_INTERVAL");
+  const missingVars: any[] = [];
+
+  // Check if the value is undefined and log only missing variables
+  const logEnvVar = (varName: string, value: string | undefined) => {
+    if (value === undefined) {
+      missingVars.push(varName);
+      console.log(`${chalk.red(varName)}: ${chalk.red("undefined")}`);
+    }
+  };
+
+  logEnvVar("GRPC_URL", process.env.GRPC_URL);
+  logEnvVar("GRPC_API_KEY", process.env.GRPC_API_KEY);
+  logEnvVar("HTTP_URL", process.env.HTTP_URL);
+  logEnvVar("WS_URL", process.env.WS_URL);
+  logEnvVar("TEST_DURATION", process.env.TEST_DURATION);
+  logEnvVar("TEST_INTERVAL", process.env.TEST_INTERVAL);
+  logEnvVar("TEST_GRPC_STREAM", process.env.TEST_GRPC_STREAM);
+  logEnvVar("TEST_GRPC_CALLS", process.env.TEST_GRPC_CALLS);
+  logEnvVar("TEST_WEBSOCKET_STREAM", process.env.TEST_WEBSOCKET_STREAM);
+  logEnvVar("TEST_HTTP_CALLS", process.env.TEST_HTTP_CALLS);
+  logEnvVar("ERROR_LEVEL", process.env.ERROR_LEVEL);
 
   if (missingVars.length > 0) {
-    console.log(
-      chalk.red(`Missing environment variable(s): ${missingVars.join(", ")}`)
-    );
+    console.log(chalk.red("\nMissing environment variables:"));
+    missingVars.forEach((variable) => {
+      console.log(chalk.red(`- ${variable}: undefined`));
+    });
     process.exit(1);
   }
 };
@@ -295,7 +314,7 @@ async function testGrpcStream(): Promise<IResults> {
   return new Promise<IResults>(async (resolve) => {
     try {
       const client = new Client(GRPC_URL, X_TOKEN, {
-        "grpc.max_receive_message_length": 1024 * 1024 * 1024
+        "grpc.max_receive_message_length": 1024 * 1024 * 1024,
       });
 
       const stream = await client.subscribe();
